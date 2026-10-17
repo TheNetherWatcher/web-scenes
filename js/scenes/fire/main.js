@@ -1,11 +1,12 @@
-// Campfire at dusk on an open meadow: raymarched turbulent flame volume, GPU particle sparks / flame
-// fragments / smoke, flickering point light with analytic stone + log shadows, instanced grass blades
-// lit by the fire, procedural dusk-to-night sky with stars, Milky Way, moon and a distant treeline.
+// Campfire at dusk on an open meadow: raymarched turbulent flame volume, charred logs with glowing
+// cracks, GPU particle sparks / flame fragments / smoke, flickering point light with analytic stone +
+// log shadows, instanced grass blades lit by the fire, procedural dusk-to-night sky with stars, Milky
+// Way, moon and a distant treeline.
 import { boot } from '../../engine/engine.js';
 import { GU, TU } from '../../engine/gpu.js';
-import { buildSolids, buildGrass, groundHeight } from './mesh.js';
+import { buildSolids, buildGrass, groundHeight, NBLK } from './mesh.js';
 import { SKY, GROUND, GRASS, SOLID } from './wgsl_world.js';
-import { NOISE_GEN, FLAME, SIM, SPARK, SMOKE, FIREFLY } from './wgsl_fx.js';
+import { NOISE_GEN, NOISE_GEN2, FLAME, SIM, SPARK, SMOKE, FIREFLY } from './wgsl_fx.js';
 
 const NOISE_RES = 128;
 const MAX_GRASS = 200000;
@@ -41,7 +42,7 @@ function fireState(P, t) {
     0.25 + 0.55 * S * heightF + (vn(t * 6.3 + 1) - 0.5) * 0.1,
     bend[1] * 0.25 * S + (vn(t * 4.7 + 8) - 0.5) * 0.16,
   ];
-  const intensity = 10 * P.intensity * S * S * lightFlick * (0.7 + 0.3 * heightF);
+  const intensity = 18 * P.intensity * S * S * lightFlick * (0.7 + 0.3 * heightF);
 
   const k = P.tod;
   const night = sstep(0.0, 0.75, k);
@@ -49,7 +50,8 @@ function fireState(P, t) {
   const hor = mix3([0.62, 0.26, 0.13], [0.010, 0.016, 0.03], Math.pow(night, 0.7));
   const amb = mix3([0.024, 0.030, 0.050], [0.0016, 0.0022, 0.0055], Math.pow(night, 0.6));
   const moonVis = sstep(0.2, 0.7, k);
-  const moonCol = [0.50 * moonVis * 0.55, 0.62 * moonVis * 0.55, 0.9 * moonVis * 0.55];
+  const moonCol = [0.50 * moonVis * 0.33, 0.62 * moonVis * 0.33, 0.9 * moonVis * 0.33];
+  for (let i = 0; i < 3; i++) { amb[i] *= 0.6; }
   return { S, lightFlick, heightF, wind, gust, bend, light, intensity, zen, hor, amb, moonVis, moonCol, stars: sstep(0.05, 0.7, k) };
 }
 
@@ -58,7 +60,7 @@ const scene = {
   msaa: 4,
   params: {
     size: 1.0, intensity: 1.0, wind: 0.3, turb: 1.0, embers: 1.0, smoke: 1.0, grass: 1.0, grassWind: 1.0,
-    tod: 0.5, mist: 0.85, haze: 1.0, exposure: 1.3, bloom: 0.14, vignette: 0.3, sat: 1.05, contrast: 1.1, warmth: 0.0, grain: 0.35,
+    tod: 0.62, mist: 0.85, haze: 1.0, exposure: 1.3, bloom: 0.2, vignette: 0.3, sat: 1.05, contrast: 1.1, warmth: 0.0, grain: 0.35,
   },
   sliders: [
     ['size', 'Fire size', 0.5, 1.6, 0.01],
@@ -75,7 +77,7 @@ const scene = {
     ['exposure', 'Exposure', 0.2, 6, 0.01],
     ['bloom', 'Bloom', 0, 0.4, 0.002],
   ],
-  camera: { mode: 'walk', x: 2.6, y: 1.2, z: 3.1, yaw: -40, pitch: 4, fov: 56, speed: 1.6, eye: 1.25, near: 0.03 },
+  camera: { mode: 'walk', x: 2.3, y: 1.2, z: 2.75, yaw: -40, pitch: 5, fov: 56, speed: 1.6, eye: 1.15, near: 0.03 },
   groundHeight,
   help: 'click: mouse look · WASD walk · Shift run · wheel speed · H panel',
 
@@ -99,6 +101,7 @@ const scene = {
       { binding: 1, visibility: VF, buffer: { type: 'uniform' } },
       { binding: 2, visibility: VF, texture: { sampleType: 'float', viewDimension: '3d' } },
       { binding: 3, visibility: VF, sampler: { type: 'filtering' } },
+      { binding: 4, visibility: VF, texture: { sampleType: 'float', viewDimension: '3d' } },
     ] });
     const bglP = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: STAGE.VERTEX, buffer: { type: 'read-only-storage' } }] });
     const bglC = device.createBindGroupLayout({ entries: [
@@ -115,24 +118,26 @@ const scene = {
     const plC = device.createPipelineLayout({ bindGroupLayouts: [bglC] });
     const plN = device.createPipelineLayout({ bindGroupLayouts: [bglN] });
 
-    // ---- noise volume ----------------------------------------------------------------------
-    const noiseTex = device.createTexture({ size: [NOISE_RES, NOISE_RES, NOISE_RES], dimension: '3d', format: 'rgba8unorm', usage: TU.TEXTURE_BINDING | TU.STORAGE_BINDING });
-    const noiseMod = await eng.shader(NOISE_GEN, 'noise gen');
-    const noisePipe = await device.createComputePipelineAsync({ layout: plN, compute: { module: noiseMod, entryPoint: 'main' } });
-    {
+    // ---- noise volumes ---------------------------------------------------------------------
+    const mkVolume = async (code, label) => {
+      const tex = device.createTexture({ size: [NOISE_RES, NOISE_RES, NOISE_RES], dimension: '3d', format: 'rgba8unorm', usage: TU.TEXTURE_BINDING | TU.STORAGE_BINDING });
+      const mod = await eng.shader(code, label);
+      const pipe = await device.createComputePipelineAsync({ layout: plN, compute: { module: mod, entryPoint: 'main' } });
       const enc = device.createCommandEncoder();
       const cp = enc.beginComputePass();
-      cp.setPipeline(noisePipe);
-      cp.setBindGroup(0, device.createBindGroup({ layout: bglN, entries: [{ binding: 0, resource: noiseTex.createView({ dimension: '3d' }) }] }));
+      cp.setPipeline(pipe);
+      cp.setBindGroup(0, device.createBindGroup({ layout: bglN, entries: [{ binding: 0, resource: tex.createView({ dimension: '3d' }) }] }));
       cp.dispatchWorkgroups(NOISE_RES / 4, NOISE_RES / 4, NOISE_RES / 4);
       cp.end();
       queue.submit([enc.finish()]);
-    }
-    const noiseView = noiseTex.createView({ dimension: '3d' });
+      return tex.createView({ dimension: '3d' });
+    };
+    const noiseView = await mkVolume(NOISE_GEN, 'noise gen');
+    const noiseView2 = await mkVolume(NOISE_GEN2, 'noise gen 2');
     const nsamp = device.createSampler({ magFilter: 'linear', minFilter: 'linear', addressModeU: 'repeat', addressModeV: 'repeat', addressModeW: 'repeat' });
 
     // ---- uniforms --------------------------------------------------------------------------
-    this.scnF = new Float32Array(34 * 4);
+    this.scnF = new Float32Array((10 + NBLK) * 4);
     this.scnBuf = eng.mkBuf(this.scnF.byteLength, GU.UNIFORM | GU.COPY_DST, 'scene ubo');
     this.simF = new Float32Array(12);
     this.simBuf = eng.mkBuf(48, GU.UNIFORM | GU.COPY_DST, 'sim ubo');
@@ -140,7 +145,7 @@ const scene = {
     this.scnF.set(solids.blockers, 40);
     this.bgR = device.createBindGroup({ layout: bglR, entries: [
       { binding: 0, resource: { buffer: eng.camUBO } }, { binding: 1, resource: { buffer: this.scnBuf } },
-      { binding: 2, resource: noiseView }, { binding: 3, resource: nsamp },
+      { binding: 2, resource: noiseView }, { binding: 3, resource: nsamp }, { binding: 4, resource: noiseView2 },
     ] });
 
     // ---- geometry --------------------------------------------------------------------------

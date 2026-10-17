@@ -2,7 +2,7 @@
 import { FIRE_COMMON } from './wgsl_common.js';
 
 // 128^3 RGBA8 tileable noise: rgb = three independent periodic Perlin fbm (0..1), a = 1 - Worley F1
-export const NOISE_GEN = /* wgsl */ `
+const NOISE_LIB = /* wgsl */ `
 @group(0) @binding(0) var outT: texture_storage_3d<rgba8unorm, write>;
 
 fn pcg3(v0: vec3u) -> vec3u {
@@ -54,6 +54,24 @@ fn worley(p: vec3f, per: i32, seed: u32) -> f32 {
   } } }
   return sqrt(m);
 }
+fn worley2(p: vec3f, per: i32, seed: u32) -> vec2f {
+  let q = p * f32(per);
+  let i = vec3i(floor(q));
+  let f = fract(q);
+  var m1 = 8.0; var m2 = 8.0;
+  for (var z = -1; z <= 1; z++) { for (var y = -1; y <= 1; y++) { for (var x = -1; x <= 1; x++) {
+    let o = vec3i(x, y, z);
+    let h = vec3f(pcg3(wrap3(i + o, per) + vec3u(seed, seed * 3u, seed * 7u))) / 4294967295.0;
+    let d = vec3f(o) + h - f;
+    let e = dot(d, d);
+    if (e < m1) { m2 = m1; m1 = e; } else if (e < m2) { m2 = e; }
+  } } }
+  return vec2f(sqrt(m1), sqrt(m2));
+}
+`;
+
+export const NOISE_GEN = /* wgsl */ `
+${NOISE_LIB}
 @compute @workgroup_size(4, 4, 4) fn main(@builtin(global_invocation_id) gid: vec3u) {
   let p = (vec3f(gid) + 0.5) / 128.0;
   let r = pfbm(p, 1u);
@@ -61,6 +79,23 @@ fn worley(p: vec3f, per: i32, seed: u32) -> f32 {
   let b = pfbm(p, 202u);
   let a = 1.0 - clamp(worley(p, 6, 303u) * 1.15, 0.0, 1.0);
   textureStore(outT, gid, vec4f(r, g, b, a));
+}
+`;
+
+// second volume for the wood / stone / coal surfaces: r,g = cell-edge distances (cracks) at two
+// scales, b = Worley F1 (rock facets), a = fine tileable fbm
+export const NOISE_GEN2 = /* wgsl */ `
+${NOISE_LIB}
+@compute @workgroup_size(4, 4, 4) fn main(@builtin(global_invocation_id) gid: vec3u) {
+  let p = (vec3f(gid) + 0.5) / 128.0;
+  let w1 = worley2(p, 5, 411u);
+  let w2 = worley2(p, 12, 523u);
+  let w3 = worley2(p, 8, 617u);
+  let e1 = clamp((w1.y - w1.x) * 2.6, 0.0, 1.0);
+  let e2 = clamp((w2.y - w2.x) * 2.6, 0.0, 1.0);
+  let f1 = clamp(w3.x * 1.2, 0.0, 1.0);
+  let fb = pfbm(p * 2.0, 707u);
+  textureStore(outT, gid, vec4f(e1, e2, f1, fb));
 }
 `;
 
@@ -87,27 +122,34 @@ struct FO { @builtin(position) pos: vec4f };
 // (density, temperature) of the flame volume at world position pw (fire base at the origin)
 fn flameField(pw: vec3f, t: f32, S: f32) -> vec2f {
   let p = pw / S;
-  let FH = 1.95 * scn.fire.z;
+  let H = 1.75 * scn.fire.z;
   let turb = scn.env.w;
-  let fs0 = saturate(p.y / FH);
-  var xz = p.xz - scn.fire.xy * fs0 * fs0 * 1.3;
-  let adv = t * 0.9;
-  let w1 = nz(vec3f(xz.x * 0.75, p.y * 0.5 - adv * 0.8, xz.y * 0.75)).rgb - 0.5;
-  xz += w1.xz * turb * (0.1 + fs0);
-  let w2 = nz(vec3f(xz.x * 1.9 + 0.4, p.y * 1.3 - adv * 1.9, xz.y * 1.9)).rgb - 0.5;
-  xz += w2.xz * 0.35 * turb * fs0;
-  let n2 = nz(vec3f(xz.x * 2.6 + 0.31, p.y * 0.95 - adv * 1.6, xz.y * 2.6 + 0.57)).rgb;
-  let n3 = nz(vec3f(xz.x * 4.4 + 0.7, p.y * 1.5 - adv * 2.6, xz.y * 4.4 + 0.2));
-  let lick = nz(vec3f(xz.x * 0.8 + 0.13, t * 0.25, xz.y * 0.8)).g;
-  let Hloc = FH * (0.4 + 1.2 * lick);
-  let f = p.y / Hloc;
-  if (f > 1.0 || p.y < -0.05) { return vec2f(0.0); }
-  let prof = mix(0.4, 1.0, smoothstep(0.0, 0.25, f)) * pow(1.0 - f, 0.75);
-  let r = 0.82 * prof;
+  let fs0 = saturate(p.y / (H * 1.5));
+  var xz = p.xz - scn.fire.xy * fs0 * fs0 * 1.1;
+  // big slow swirl + lateral lean of the whole body
+  let w1 = nz(vec3f(xz.x * 0.5, p.y * 0.3 - t * 0.5, xz.y * 0.5)).rgb - 0.5;
+  xz += w1.xz * turb * (0.10 + 0.8 * fs0);
+  let yy = p.y + w1.y * 0.45 * turb * fs0;
+  // anisotropic noise: wide in y, tight in xz -> vertical streaks that read as separate tongues
+  let tg = nz(vec3f(xz.x * 1.5 + 0.4, yy * 0.40 - t * 1.05, xz.y * 1.5));
+  let tg2 = nz(vec3f(xz.x * 3.4 + 0.1, yy * 0.85 - t * 2.0, xz.y * 3.4 + 0.5));
+  let tg3 = nz(vec3f(xz.x * 7.0 + 0.7, yy * 1.6 - t * 3.4, xz.y * 7.0 + 0.2));
+  // every tongue has its own height
+  let lick = nz(vec3f(xz.x * 2.3 + 0.13, t * 0.7 + yy * 0.12, xz.y * 2.3)).g;
+  let lick2 = nz(vec3f(xz.x * 4.6 + 0.6, t * 1.3, xz.y * 4.6 + 0.2)).b;
+  let Hloc = H * (0.22 + 1.15 * lick * lick + 0.55 * lick2);
+  let f = yy / Hloc;
+  if (f > 1.0 || p.y < 0.02) { return vec2f(0.0); }
+  // footprint: wide over the fuel, narrowing quickly into tongues
+  let prof = (0.30 + 0.70 * smoothstep(0.0, 0.18, f)) * pow(1.0 - f, 0.55) * (1.0 - 0.45 * f);
+  let r = 0.88 * prof;
   let d = length(xz) / max(r, 0.02);
-  var dens = (1.0 - d) * 1.6 - (n2.r - 0.48) * (0.7 + 1.9 * f) - (n3.g - 0.5) * (0.5 + 1.0 * f);
-  dens = saturate(dens * 0.95);
-  let T = saturate(dens * 1.05) * max(0.9 - 0.8 * pow(f, 1.15), 0.0) * max(1.0 - 0.45 * d * d, 0.0) * (0.55 + 0.75 * n3.b);
+  var dens = (1.0 - d) * 1.5 - (tg.r - 0.5) * (0.75 + 2.3 * f) - (tg2.g - 0.5) * (0.35 + 1.5 * f) - (tg3.b - 0.5) * (0.2 + 0.9 * f);
+  let baseY = 0.05 + 0.25 * tg2.g + 0.10 * tg.b;
+  dens = smoothstep(0.0, 0.2, dens) * smoothstep(baseY, baseY + 0.22, p.y);
+  // cooler near the fuel surface (thin blue-ish sheet), hottest just above it, cooling with height
+  let heat = smoothstep(0.0, 0.14, f) * (1.0 - pow(f, 0.9));
+  let T = saturate(saturate(dens * 1.1) * heat * (0.45 + 1.7 * tg.g * tg.g + 0.6 * tg2.r) * max(1.0 - 0.4 * d * d, 0.0) * 1.05);
   return vec2f(dens, T);
 }
 
@@ -136,7 +178,7 @@ fn ign(p: vec2f) -> f32 { return fract(52.9829189 * fract(dot(p, vec2f(0.0671105
   t1 = min(t1, max(ta, tb));
   if (t1 <= t0) { discard; }
 
-  let N = 72;
+  let N = clamp(i32((t1 - t0) / (0.026 * S)), 24, 88);
   let dt = (t1 - t0) / f32(N);
   var t = t0 + dt * ign(in.pos.xy + cam.misc.y * 7.13);
   let time = cam.pos.w;
@@ -147,12 +189,13 @@ fn ign(p: vec2f) -> f32 { return fract(52.9829189 * fract(dot(p, vec2f(0.0671105
     let fd = flameField(p, time, S);
     if (fd.x > 0.004) {
       let T = fd.y;
-      var rad = flameRamp(T) * (0.22 + 7.5 * pow(T, 2.3));
-      let low = 1.0 - smoothstep(0.0, 0.2, p.y / S);
-      rad += vec3f(0.10, 0.26, 1.0) * low * 0.9;
-      let w = pow(fd.x, 1.8) * dt;
-      L += trans * rad * w * 3.2 * mix(0.3, 1.0, smoothstep(0.0, 0.8, p.y / S));
-      trans *= exp(-w * (0.25 + 0.5 * (1.0 - T)));
+      var rad = flameRamp(T) * (0.2 + 3.6 * pow(T, 1.7));
+      let low = 1.0 - smoothstep(0.0, 0.22, p.y / S);
+      rad += vec3f(0.08, 0.22, 1.0) * low * 0.55 * fd.x;
+      let w = fd.x * dt * 5.0 / S;
+      L += trans * rad * (1.0 - exp(-w));
+      trans *= exp(-w * (0.55 + 0.9 * (1.0 - T)));
+      if (trans < 0.01) { break; }
     }
     t += dt;
   }
@@ -324,7 +367,7 @@ struct PO { @builtin(position) pos: vec4f, @location(0) uv: vec2f, @location(1) 
     size *= (1.0 - 0.6 * k);
     stretch = 1.0 + speed * 0.9;
     T = 0.62 * (1.0 - k);
-    bright = 0.22 * smoothstep(0.0, 0.12, k) * (1.0 - k);
+    bright = 0.10 * smoothstep(0.0, 0.12, k) * (1.0 - k);
   } else {
     size *= (1.0 - 0.5 * k);
     bright = (0.7 + 0.5 * sin(age * 38.0 + pt.att.z * 60.0)) * smoothstep(0.0, 0.04, k) * (1.0 - smoothstep(0.7, 1.0, k)) * scn.amb.w;
@@ -363,7 +406,7 @@ struct SO { @builtin(position) pos: vec4f, @location(0) uv: vec2f, @location(1) 
   let k = age / life;
   let rgt = normalize(cam.right.xyz);
   let upv = normalize(cam.up.xyz);
-  let size = pt.att.y * (1.0 + 4.5 * pow(k, 0.7));
+  let size = pt.att.y * (1.0 + 2.8 * pow(k, 0.7));
   let corner = QUAD[vi];
   let wp = pt.pos.xyz;
   let rot = pt.att.z * 6.28 + age * 0.15;
@@ -382,15 +425,23 @@ struct SO { @builtin(position) pos: vec4f, @location(0) uv: vec2f, @location(1) 
   if (r > 1.0) { discard; }
   let n = nz(vec3f(in.uv * 0.55 + in.seed * 7.0, in.k * 0.6 + in.seed)).r;
   let n2 = nz(vec3f(in.uv * 1.7 + in.seed * 3.0, in.seed)).g;
-  var a = (1.0 - smoothstep(0.15, 1.0, r)) * smoothstep(0.25, 0.8, n * 0.7 + n2 * 0.5 + 0.1 - r * 0.35);
+  let edgeF = pow(1.0 - smoothstep(0.0, 1.0, r), 1.5);
+  var a = edgeF * smoothstep(0.25, 0.8, n * 0.7 + n2 * 0.5 + 0.1 - r * 0.35);
   let fadeIn = smoothstep(0.0, 0.12, in.k);
   let fadeOut = pow(1.0 - in.k, 1.6);
   a *= fadeIn * fadeOut * 0.16 * scn.hor.w;
   let toL = scn.light.xyz - in.wp;
   let r2 = dot(toL, toL);
-  let irr = scn.lightCol.rgb * scn.light.w / (r2 + 1.5) * 0.45;
-  let lit = irr + scn.amb.rgb * 3.5 + scn.moonCol.rgb * 1.2 + scn.hor.rgb * 0.18;
-  let col = vec3f(0.30, 0.29, 0.28) * lit;
+  // lit side faces the fire: volumetric shading in the particle plane
+  let rgt = normalize(cam.right.xyz);
+  let upv = normalize(cam.up.xyz);
+  let l2 = vec2f(dot(toL, rgt), dot(toL, upv));
+  let ldir = l2 / max(length(l2), 1e-3);
+  let side = dot(in.uv / max(r, 1e-3), ldir) * smoothstep(0.0, 0.7, r);
+  let shade = 0.55 + 0.45 * side + 0.25 * (1.0 - r);
+  let irr = scn.lightCol.rgb * scn.light.w / (r2 + 3.0) * 0.32 * shade;
+  let lit = irr + scn.amb.rgb * 3.0 + scn.moonCol.rgb * 1.0 + scn.hor.rgb * 0.14;
+  let col = vec3f(0.26, 0.25, 0.25) * lit;
   return vec4f(col * a, a);
 }
 `;

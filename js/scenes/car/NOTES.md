@@ -1,29 +1,45 @@
 # Car scene: "Vesper" (original mid-engine hypercar, wet road, golden hour)
 
 ## Design
-- 4.55 m wedge: lofted superellipse body (width/top/bottom curves per x), separate canopy, front
-  fender volumes, carved arches, door scoop, side air intake, front mouth + brake ducts, engine-cover vent,
-  twin exhausts, slim LED head blades, full-width tail bar, mirrors, pitched wing on swan-neck pylons.
-- Wheels: thin-sidewall tyre, 3 rim styles (5 twin-spoke / 10-spoke / 7-spoke), drilled disc, red calipers.
+- 4.58 m wedge. Body = polygon cross-sections lofted along the car (`loftMain`): flat floor, rocker, widest flank, a crisp
+  beltline crease, crowned fenders over the wheels that dip to a hood spine, rounded with a 2 cm radius. Raked nose with a
+  carbon splitter, cab-forward canopy, swept-up tail.
+- Detail carved into the SDF: hood channels, hood vents, headlamp housings, door scoop + shut lines, side intake with
+  louvres, rear arch intake, twin titanium exhaust tips, tail-light bar. The DRL blade, projector and housing edge are
+  painted in the fragment shader from the same plan-view shapes (`HEAD_SHAPES` in sdf.js) so they stay crisp.
+- Rear wing: cambered aerofoil section, gurney flap, end plates, swan-neck pylons (all carbon).
+- Wheels (3 rim styles): thin-sidewall tyre with tread, moulded ridge and sidewall lettering, graphite spokes with a
+  diamond-cut lip, drilled disc, red caliper. Interior (dash, seats, tunnel) is ray-cast through the glass.
 
-## How it renders
-- Models are SDFs (sdf.js). A compute shader samples them on a 1.4 cm grid (6 mm for wheels) and bakes
-  material masks (glass, carbon, cavity, lamp, trim) plus ambient occlusion; mesher.js runs CPU surface nets
-  and builds vertex buffers (about 1 s at start-up). `?res=1.0` meshes finer (cm).
-- Raster frame: car drawn twice (second pass mirrored under the road), sky, then the road blended over
-  the mirrored scene (fresnel x wetness x floor reflectivity).
-- Shading (shaders.js): one analytic dusk environment drives everything. Paint = clearcoat + metallic
-  base + footprint-faded flakes; carbon twill weave; tinted glass; hex-mesh cavities; panel gap lines in-shader;
-  emissive lamps. Road: aggregate noise, puddles, lane paint, contact AO and soft sun shadow from a proxy.
-- Engine post: HDR, 8-level bloom, AgX.
+## How it renders (per frame)
+1. Environment cube (512^2, 10 mips): sky, clouds, hills, tree line, street lamps and a Fresnel "wet road" below the
+   horizon are baked when the sun or lamps change (`ENV_BAKE`, `ENV_MIP` in shaders.js). The sun itself stays analytic
+   (`sunLobe`) so it can be shadowed.
+2. Car distance texture (208x60x100 rgba16float, 2.5 cm, built once): `carShadow` sphere-traces it for soft sun shadows on
+   the body and on the road; `carAO` gives contact occlusion on the road.
+3. Mirror pass: the car is drawn upside-down under the road into an offscreen target (colour + height above road), then
+   mip-chained. The road samples it with 12 rotated taps; blur radius grows with roughness and with height above the road
+   (contact hardening), and the lookup is offset by the road normal.
+4. Main pass: car (clear coat over metallic flake over pigment, orange peel, rain beads, carbon twill, tinted glass with a
+   cabin behind it, hex-mesh cavities), analytic sky + lamp posts, wet road (aggregate, cracks, patches, puddles, grass
+   shoulders, GGX-style sky / lamp / sun reflection through the same roughness model).
+5. Engine post: HDR bloom + AgX.
+
+Body is meshed once on one side only (SDF -> GPU compute grid in 5 z-slabs -> CPU surface nets, 8 mm cells, ~1-2 s) and drawn
+twice, the second instance mirrored in z.
 
 ## Controls
-Drag orbit, wheel zoom, WASD slide the view, H panel. Sliders: paint hue/lightness, flake, sun elevation/azimuth,
-wheel spin (road scrolls with it), rim style, headlights, floor reflectivity, exposure, bloom.
-URL: `cam=tx,ty,tz,yawDeg,pitchDeg,dist`, any slider key, `res`.
+Drag orbit, wheel zoom, WASD slide the view, H panel. Sliders: paint hue/lightness, flake, orange peel, rain beads, sun
+elevation/azimuth, wheel spin (road scrolls with it), rim style, headlights, street lamps, floor reflectivity, exposure,
+bloom. URL: `cam=tx,ty,tz,yawDeg,pitchDeg,dist`, any slider key, `res=0.8` (body cell in cm). Dev: `perf=1` logs the frame
+time to the dev server, `off=car,sky,road,mirror` skips passes for profiling.
+
+## Measured
+Apple M4 Pro, 1920x1080: about 6.5 ms/frame (road ~2.1, mirror pass ~1.2, car ~1.1, sky ~0.7, rest post). Not measured on
+weaker GPUs; the road shader is the first thing to trim (`?dpr=1` helps most).
 
 ## Known limits
-- Body is smooth-shaded from a 1.4 cm grid: very fine creases are rounded; shut lines are shader-drawn.
-- No interior (glass is a dark tint); no sun shadow on the body itself (AO + analytic light only).
-- Rim style change re-meshes the wheel (about 100 ms hitch). Reflection is a planar mirror pass (no blur).
-- Not measured on a laptop GPU; load is two 400k-triangle passes plus one road quad.
+- Fine creases are still limited by the 8 mm grid (tight panel-edge radii look slightly bumpy at the 2.4 m minimum zoom).
+- Panel gaps are shader lines (not geometry); the cabin is a handful of boxes, so it only reads through the side glass.
+- Mirror reflection is planar (road only); the sky, lamps and sun are analytic / baked.
+- Rim style change re-meshes the wheel (about 100 ms hitch).

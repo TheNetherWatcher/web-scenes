@@ -824,14 +824,15 @@ var norm = (a) => {
   const l = Math.hypot(a[0], a[1], a[2]) || 1;
   return [a[0] / l, a[1] / l, a[2] / l];
 };
+var NBLK = 28;
 function buildSolids() {
   const rnd = rng(20261017);
   const V = [];
   const I = [];
-  const blockers = new Float32Array(24 * 4);
+  const blockers = new Float32Array(NBLK * 4);
   let nb = 0;
   const addBlocker = (x, y, z, r) => {
-    if (nb < 24) {
+    if (nb < NBLK) {
       blockers.set([x, y, z, r], nb * 4);
       nb++;
     }
@@ -839,22 +840,24 @@ function buildSolids() {
   function vert(p, n, u, v, mat, seed) {
     V.push(p[0], p[1], p[2], n[0], n[1], n[2], u, v, mat, seed);
   }
-  function cyl(a, b, r0, r1, seed) {
+  function cyl(a, b, r0, r1, seed, bend = 0) {
     const d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
     const len = Math.hypot(d[0], d[1], d[2]);
     const dn = [d[0] / len, d[1] / len, d[2] / len];
     const ref = Math.abs(dn[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0];
     const u = norm(cross(ref, dn));
     const w = cross(dn, u);
-    const rings = 14, segs = 16;
+    const rings = 22, segs = 20;
     const base = V.length / 10;
     for (let i = 0; i <= rings; i++) {
       const s = i / rings;
-      const c = [a[0] + d[0] * s, a[1] + d[1] * s, a[2] + d[2] * s];
+      const bo = bend * Math.sin(s * Math.PI);
+      const c = [a[0] + d[0] * s + w[0] * bo, a[1] + d[1] * s + w[1] * bo, a[2] + d[2] * s + w[2] * bo];
       for (let j = 0; j <= segs; j++) {
         const ang = j / segs * Math.PI * 2;
         const ca = Math.cos(ang), sa = Math.sin(ang);
-        const rad = (r0 + (r1 - r0) * s) * (1 + 0.07 * Math.sin(s * 11 + seed * 3 + ang * 2) + 0.05 * Math.sin(ang * 3 + seed * 7 + s * 5));
+        const knot = Math.exp(-Math.pow((s - seed * 0.37 % 1) * 7, 2)) * Math.max(0, Math.sin(ang * 1 + seed)) * 0.22;
+        const rad = (r0 + (r1 - r0) * s) * (1 + 0.06 * Math.sin(s * len * 9 + seed * 3 + ang * 2) + 0.05 * Math.sin(ang * 3 + seed * 7 + s * len * 4) + 0.03 * Math.sin(ang * 7 + s * len * 17 + seed) + knot);
         const nx = [u[0] * ca + w[0] * sa, u[1] * ca + w[1] * sa, u[2] * ca + w[2] * sa];
         vert([c[0] + nx[0] * rad, c[1] + nx[1] * rad, c[2] + nx[2] * rad], nx, ang, s * len, 0, seed);
       }
@@ -890,9 +893,11 @@ function buildSolids() {
       const th = i / rings * Math.PI;
       for (let j = 0; j <= segs; j++) {
         const ph = j / segs * Math.PI * 2;
-        const nx = Math.sin(th) * Math.cos(ph), ny = Math.cos(th), nz = Math.sin(th) * Math.sin(ph);
-        const bump = 1 + 0.16 * Math.sin(ph * 2 + seed * 5 + th * 3) + 0.1 * Math.sin(ph * 5 + seed * 9) * Math.sin(th * 2);
-        vert([cx + nx * r * bump, cy + ny * r * sy * bump, cz + nz * r * bump], [nx, ny / sy, nz], ph, th, 1, seed);
+        let ny = Math.sin(th) * Math.sin(ph), nx = Math.cos(th), nz = Math.sin(th) * Math.cos(ph);
+        const q = (v) => Math.sign(v) * Math.pow(Math.abs(v), 0.72);
+        const sx = q(nx), sy2 = q(ny), sz = q(nz);
+        const bump = 1 + 0.12 * Math.sin(ph * 2 + seed * 5 + th * 3) + 0.08 * Math.sin(ph * 5 + seed * 9) * Math.sin(th * 2) + 0.05 * Math.sin(ph * 9 + th * 7 + seed * 3);
+        vert([cx + sx * r * bump * (1 + 0.15 * Math.sin(seed)), cy + sy2 * r * sy * bump, cz + sz * r * bump * (1 + 0.15 * Math.cos(seed * 1.7))], norm([Math.sign(sx) * Math.pow(Math.abs(sx), 0.39), Math.sign(sy2) * Math.pow(Math.abs(sy2), 0.39) / sy, Math.sign(sz) * Math.pow(Math.abs(sz), 0.39)]), ph, th, 1, seed);
       }
     }
     for (let i = 0; i < rings; i++) {
@@ -903,36 +908,42 @@ function buildSolids() {
     }
     addBlocker(cx, cy + r * sy * 0.2, cz, r * 0.82);
   }
+  const NL = 5;
+  for (let k = 0; k < NL; k++) {
+    const ang = k / NL * Math.PI * 2 + 0.35 + (rnd() - 0.5) * 0.28;
+    const dx = Math.cos(ang), dz = Math.sin(ang);
+    const rr = 0.13 + rnd() * 0.025;
+    const a = [dx * 0.1, 0.3 + rnd() * 0.05, dz * 0.1], b = [dx * (0.98 + rnd() * 0.18), 0.14, dz * (0.98 + rnd() * 0.18)];
+    cyl(a, b, rr * 0.95, rr, k + 1, (rnd() - 0.5) * 0.06);
+    for (const t of [0.42, 0.85]) addBlocker(a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t, rr * 0.95);
+  }
   for (let k = 0; k < 3; k++) {
-    const ang = k / 3 * Math.PI * 2 + 0.5 + rnd() * 0.2;
+    const ang = 0.9 + k * 2.1 + rnd() * 0.3;
     const dx = Math.cos(ang), dz = Math.sin(ang);
-    const a = [dx * 0.08, 0.24, dz * 0.08], b = [dx * 1, 0.12, dz * 1];
-    cyl(a, b, 0.115, 0.125, k + 1);
-    for (const t of [0.35, 0.65, 0.92]) addBlocker(a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t, 0.12);
+    const off = 0.13 + rnd() * 0.08;
+    const px = -dz * off, pz = dx * off;
+    const a = [-dx * 0.46 + px, 0.37 + rnd() * 0.04, -dz * 0.46 + pz], b = [dx * 0.46 + px, 0.34 + rnd() * 0.04, dz * 0.46 + pz];
+    cyl(a, b, 0.088, 0.078, 20 + k, (rnd() - 0.5) * 0.05);
+    for (const t of [0.25, 0.75]) addBlocker(a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t, 0.085);
   }
-  for (let k = 0; k < 2; k++) {
-    const ang = 1 + k * 2.6 + rnd() * 0.3;
-    const dx = Math.cos(ang), dz = Math.sin(ang);
-    cyl([-dx * 0.5, 0.33, -dz * 0.5], [dx * 0.5, 0.31, dz * 0.5], 0.075, 0.07, 20 + k);
-  }
-  const NS = 11;
+  const NS = 9;
   for (let k = 0; k < NS; k++) {
-    const ang = k / NS * Math.PI * 2 + rnd() * 0.4;
-    const rb = 0.4 + rnd() * 0.22;
-    const top = 0.72 + rnd() * 0.25;
-    const a = [Math.cos(ang) * rb, 0.02, Math.sin(ang) * rb];
+    const ang = k / NS * Math.PI * 2 + rnd() * 0.5;
+    const rb = 0.35 + rnd() * 0.22;
+    const top = 0.62 + rnd() * 0.3;
+    const a = [Math.cos(ang) * rb, 0.06, Math.sin(ang) * rb];
     const ta = ang + (rnd() - 0.5) * 0.6;
     const b = [Math.cos(ta) * 0.07, top, Math.sin(ta) * 0.07];
-    cyl(a, b, 0.06 + rnd() * 0.014, 0.03 + rnd() * 0.01, 40 + k);
+    cyl(a, b, 0.05 + rnd() * 0.014, 0.025 + rnd() * 0.01, 40 + k, (rnd() - 0.5) * 0.04);
   }
-  for (let k = 0; k < 14; k++) {
+  for (let k = 0; k < 20; k++) {
     const ang = rnd() * Math.PI * 2;
-    const rb = 0.22 + rnd() * 0.25;
-    const top = 0.35 + rnd() * 0.25;
-    const a = [Math.cos(ang) * rb, 0.04, Math.sin(ang) * rb];
-    const ta = ang + (rnd() - 0.5) * 1.2;
-    const b = [Math.cos(ta) * 0.1, top, Math.sin(ta) * 0.1];
-    cyl(a, b, 0.016 + rnd() * 0.01, 0.01, 80 + k);
+    const rb = 0.18 + rnd() * 0.5;
+    const top = 0.18 + rnd() * 0.3;
+    const a = [Math.cos(ang) * rb, 0.05, Math.sin(ang) * rb];
+    const ta = ang + (rnd() - 0.5) * 1.6;
+    const b = [Math.cos(ta) * (rb * 0.5), top, Math.sin(ta) * (rb * 0.5)];
+    cyl(a, b, 0.014 + rnd() * 0.012, 8e-3 + rnd() * 4e-3, 80 + k, (rnd() - 0.5) * 0.03);
   }
   const NSTONE = 12;
   for (let k = 0; k < NSTONE; k++) {
@@ -979,14 +990,16 @@ struct Scn {
   amb: vec4f,        // rgb ambient, w ember amount
   fire: vec4f,       // xy flame bend, z flame height factor
   moonCol: vec4f,    // rgb moon light colour
-  blk: array<vec4f, 24>, // shadow-casting spheres (stones + log segments): xyz, r
+  blk: array<vec4f, 28>, // shadow-casting spheres (stones + log segments): xyz, r
 }
 @group(0) @binding(0) var<uniform> cam: Cam;
 @group(0) @binding(1) var<uniform> scn: Scn;
 @group(0) @binding(2) var noiseT: texture_3d<f32>;
 @group(0) @binding(3) var nsamp: sampler;
+@group(0) @binding(4) var noiseS: texture_3d<f32>;   // surface volume: r,g crack edges, b facets, a fine fbm
 
 fn nz(p: vec3f) -> vec4f { return textureSampleLevel(noiseT, nsamp, p, 0.0); }
+fn ns(p: vec3f) -> vec4f { return textureSampleLevel(noiseS, nsamp, p, 0.0); }
 
 fn groundH(x: f32, z: f32) -> f32 {
   let r = length(vec2f(x, z));
@@ -1018,7 +1031,7 @@ fn fireShadow(p: vec3f) -> f32 {
   let d = L - p;
   if (dot(d, d) > 64.0) { return 1.0; }
   var s = 1.0;
-  for (var i = 0; i < 24; i++) {
+  for (var i = 0; i < 28; i++) {
     let b = scn.blk[i];
     if (b.w > 0.0) { s *= sphShadow(p, L, b.xyz, b.w); }
   }
@@ -1071,19 +1084,19 @@ ${FIRE_COMMON}
 ${FULLSCREEN_VS}
 
 fn starField(rd: vec3f, t: f32) -> vec3f {
-  let lat = asin(clamp(rd.y, -1.0, 1.0));
-  let lon = atan2(rd.x, rd.z);
-  let q = vec2f(lon * max(cos(lat), 0.05), lat) / 0.0105;
-  let id = floor(q);
-  let h = hash12(id);
-  if (h > 0.12) { return vec3f(0.0); }
-  let c = hash22(id + 3.3) * 0.5 + 0.25;
-  let d = length(fract(q) - c);
-  let mag = pow(hash12(id + 9.1), 5.0);
-  let b = (0.12 + 3.2 * mag) * exp(-d * d / (2.0 * 0.11 * 0.11));
+  // isotropic: 3-D cells on a sphere shell, one possible star per cell
+  let p = rd * 118.0;
+  let id = floor(p);
+  let h = hash13(id);
+  if (h > 0.34) { return vec3f(0.0); }
+  let c = hash33(id + 3.3) * 0.5 + 0.25;
+  let q = fract(p) - c;
+  let d2 = dot(q, q);
+  let mag = pow(hash13(id + 9.1), 4.0);
+  let b = (0.10 + 3.4 * mag) * exp(-d2 / (2.0 * 0.095 * 0.095));
   let tw = 0.85 + 0.15 * sin(t * (2.0 + h * 30.0) + h * 80.0);
-  let tint = mix(vec3f(1.0, 0.78, 0.6), vec3f(0.7, 0.8, 1.0), hash12(id + 1.7));
-  return tint * b * tw * 0.55;
+  let tint = mix(vec3f(1.0, 0.78, 0.6), vec3f(0.7, 0.8, 1.0), hash13(id + 1.7));
+  return tint * b * tw * 0.6;
 }
 
 fn milkyWay(rd: vec3f) -> vec3f {
@@ -1197,15 +1210,30 @@ struct GO { @builtin(position) pos: vec4f, @location(0) wp: vec3f };
   alb = mix(alb, vec3f(0.05, 0.034, 0.02), smoothstep(0.55, 0.8, n1.b) * 0.5);
   alb *= 0.65 + 0.7 * n2.r * (0.6 + 0.8 * n3.g);
 
-  // ash bed + glowing coals
+  // bare, trodden soil around the pit: grit, pebbles and dry litter instead of meadow
   let r = length(wp.xz);
-  let ashM = 1.0 - smoothstep(0.62, 1.2, r + (n1.r - 0.5) * 0.55 + (n2.g - 0.5) * 0.2);
-  let ashC = mix(vec3f(0.030, 0.028, 0.026), vec3f(0.11, 0.105, 0.10), n2.b * n3.r);
+  let soilM = 1.0 - smoothstep(1.4, 4.8, r + (n1.g - 0.5) * 1.6);
+  let grit = ns(vec3f(wp.xz * 9.0, 0.2));
+  var soil = mix(vec3f(0.026, 0.021, 0.016), vec3f(0.070, 0.058, 0.045), n2.r * (0.5 + n3.g));
+  soil = mix(soil, vec3f(0.095, 0.082, 0.064), smoothstep(0.62, 0.8, grit.b) * 0.8);
+  soil = mix(soil, vec3f(0.060, 0.045, 0.022), smoothstep(0.55, 0.75, n1.b) * 0.6);
+  alb = mix(alb, soil, soilM);
+  // scorched ash bed + glowing coals: charcoal fragments, grey ash, hot cracks
+  let ashM = 1.0 - smoothstep(0.55, 1.25, r + (n1.r - 0.5) * 0.6 + (n2.g - 0.5) * 0.25);
+  let scorch = 1.0 - smoothstep(1.0, 2.3, r + (n1.g - 0.5) * 1.0);
+  alb = mix(alb, alb * 0.2 + vec3f(0.003), scorch * 0.9);
+  let chunks = ns(vec3f(wp.xz * 3.0, 0.45)).b;
+  let ashC = mix(vec3f(0.010, 0.0095, 0.009), vec3f(0.060, 0.058, 0.055), smoothstep(0.2, 0.9, n2.b * n3.r + 0.25 * (1.0 - chunks)));
   alb = mix(alb, ashC, ashM);
-  let cell = nz(vec3f(wp.xz * 4.4, 0.35)).a;
-  let cb = smoothstep(0.52, 0.86, cell) * (1.0 - smoothstep(0.35, 0.95, r)) * smoothstep(0.05, 0.9, ashM);
-  let pulse = 0.55 + 0.45 * nz(vec3f(wp.xz * 2.2, t * 0.25)).b + 0.2 * sin(t * 7.0 + cell * 40.0);
-  let emis = flameRamp(0.30 + 0.28 * pulse) * cb * pulse * 1.6;
+  let wq = wp.xz + (nz(vec3f(wp.xz * 1.3, 0.2)).rg - 0.5) * 0.45;
+  let net = 1.0 - smoothstep(0.0, 0.17, ns(vec3f(wq * 2.2, 0.3)).r);
+  let net2 = 1.0 - smoothstep(0.0, 0.22, ns(vec3f(wq * 5.0 + 0.2, 0.7)).g);
+  let cell = ns(vec3f(wq * 1.1, 0.8)).b;
+  let cover = smoothstep(0.30, 0.65, nz(vec3f(wq * 1.9, 0.55)).a + 0.25 * (n2.r - 0.5));   // ash lying over the embers
+  let hotZone = (1.0 - smoothstep(0.30, 1.05, r)) * smoothstep(0.1, 0.8, ashM);
+  let pulse = 0.5 + 0.5 * nz(vec3f(wq * 2.2, t * 0.25)).b + 0.25 * sin(t * 6.0 + cell * 40.0);
+  let cb = saturate(max(net, net2 * 0.6) * (0.2 + 1.2 * cell) * hotZone * (1.0 - 0.8 * cover));
+  let emis = flameRamp(0.16 + 0.4 * pulse * cb) * cb * pulse * 1.5;
 
   let sh = fireShadow(wp + vec3f(0.0, 0.03, 0.0));
   var lit = fireIrr(wp, n) * mix(0.2, 1.0, sh);
@@ -1236,8 +1264,11 @@ struct GOut { @builtin(position) pos: vec4f, @location(0) col: vec3f };
   let dcam = length(root2 - cam.pos.xz);
   let clump = nz(vec3f(root2 * 0.09, 0.4));
   let fade = 1.0 - smoothstep(30.0, 52.0, dcam);
-  let h = (0.2 + 0.5 * pow(hash11(sd * 91.7), 1.6)) * (0.55 + 0.9 * clump.r) * fade;
-  let wdt = 0.019 * (0.7 + 0.6 * hash11(sd * 13.1));
+  let rpit = length(root2);
+  let trample = mix(0.4, 1.0, smoothstep(1.5, 4.2, rpit));   // worn, sparser grass around the ring
+  let keep = step(hash11(sd * 3.7 + 0.31), mix(0.10, 1.0, smoothstep(1.5, 4.5, rpit)));
+  let h = (0.2 + 0.55 * pow(hash11(sd * 91.7), 1.6)) * (0.55 + 0.9 * clump.r) * fade * trample;
+  let wdt = 0.017 * (0.7 + 0.6 * hash11(sd * 13.1)) * (0.5 + 0.5 * trample);
   let dir = vec2f(cos(yaw), sin(yaw));
   let perp = vec2f(-dir.y, dir.x);
   let lean = (0.1 + 0.4 * hash11(sd * 37.3)) * h;
@@ -1263,9 +1294,10 @@ struct GOut { @builtin(position) pos: vec4f, @location(0) col: vec3f };
   n = normalize(mix(n, vec3f(0.0, 1.0, 0.0), 0.4));
 
   let var1 = hash11(sd * 7.7);
-  let rootC = vec3f(0.018, 0.026, 0.010);
-  var tipC = mix(vec3f(0.075, 0.115, 0.030), vec3f(0.16, 0.125, 0.05), smoothstep(0.55, 0.95, var1));
-  tipC = mix(tipC, vec3f(0.05, 0.08, 0.025), clump.b * 0.5);
+  let rootC = vec3f(0.020, 0.022, 0.009);
+  var tipC = mix(vec3f(0.112, 0.090, 0.040), vec3f(0.185, 0.140, 0.062), smoothstep(0.35, 0.95, var1));
+  tipC = mix(tipC, vec3f(0.050, 0.068, 0.024), smoothstep(0.45, 0.8, clump.b) * 0.75);
+  tipC *= 0.65 + 0.7 * hash11(sd * 53.9);
   let alb = mix(rootC, tipC, pow(u, 0.75));
   let ao = mix(0.22, 1.0, pow(u, 0.7));
 
@@ -1286,9 +1318,23 @@ struct GOut { @builtin(position) pos: vec4f, @location(0) col: vec3f };
   var col = alb * lit;
   col = applyFog(col, wp);
 
+  // heat shimmer: blades seen through the hot plume wobble sideways / up
+  let vv = wp - cam.pos.xyz;
+  let dv = length(vv);
+  let rdv = vv / max(dv, 1e-3);
+  let oc = scn.light.xyz - cam.pos.xyz;
+  let tc = dot(oc, rdv);
+  var wpD = wp;
+  if (tc > 0.0 && tc < dv) {
+    let hl = length(oc - rdv * tc);
+    let yc = cam.pos.y + rdv.y * tc;
+    let hz = exp(-hl * hl * 2.2) / (1.0 + tc * 0.3) * smoothstep(0.1, 0.9, yc) * (1.0 - smoothstep(2.0, 4.0, yc));
+    let wob = nz(vec3f(wp.x * 2.5, wp.y * 2.0 - t * 1.4, wp.z * 2.5)).rgb - 0.5;
+    wpD += (normalize(cam.right.xyz) * wob.x + normalize(cam.up.xyz) * wob.y) * 0.12 * hz * scn.env.z;
+  }
   var o: GOut;
-  o.pos = cam.viewProj * vec4f(wp - cam.pos.xyz, 1.0);
-  if (fade <= 0.0) { o.pos = vec4f(2.0, 2.0, 2.0, 1.0); }
+  o.pos = cam.viewProj * vec4f(wpD - cam.pos.xyz, 1.0);
+  if (fade <= 0.0 || keep < 0.5) { o.pos = vec4f(2.0, 2.0, 2.0, 1.0); }
   o.col = col;
   return o;
 }
@@ -1313,14 +1359,6 @@ struct SO {
   return o;
 }
 
-fn barkH(uv: vec2f, seed: f32) -> f32 {
-  let q = vec3f(cos(uv.x) * 0.55 + seed * 0.13, sin(uv.x) * 0.55 + seed * 0.07, uv.y * 1.3);
-  let a = nz(q).r;
-  let b = nz(q * vec3f(3.1, 3.1, 1.4) + 0.37).g;
-  let c = nz(q * vec3f(8.0, 8.0, 3.0) + 0.71).b;
-  return a * 0.55 + b * 0.35 + c * 0.1;
-}
-
 @fragment fn fs(in: SO) -> @location(0) vec4f {
   let t = cam.pos.w;
   let wp = in.wp;
@@ -1329,51 +1367,84 @@ fn barkH(uv: vec2f, seed: f32) -> f32 {
   let seed = in.ms.y;
   let isBark = mat < 0.5;
   let isStone = mat > 0.5 && mat < 1.5;
+  let isEnd = mat > 1.5;
 
-  // surface height used for bump + cracks (derivatives kept in uniform control flow)
-  var hh = barkH(in.uv, seed);
-  let sp = wp * 3.2 + seed;
-  let sh0 = nz(sp * 0.7).r * 0.6 + nz(sp * 2.6).g * 0.4;
-  hh = select(hh, sh0, isStone);
+  // ---- procedural surface: charred bark blocks with glowing cracks / stone facets / end grain ----
+  let ang = in.uv.x;
+  let along = in.uv.y;
+  let cs = vec3f(cos(ang) * 0.8 + seed * 0.31, sin(ang) * 0.8 + seed * 0.17, along * 1.5 + seed * 0.7);
+  let fibre = nz(vec3f(cos(ang) * 0.5 + seed * 0.13, sin(ang) * 0.5 + seed * 0.07, along * 0.45)).r * 0.6
+            + nz(vec3f(cos(ang) * 1.9 + seed, sin(ang) * 1.9, along * 0.9)).g * 0.4;
+  let e1 = ns(cs * vec3f(0.30, 0.30, 0.38)).r;       // coarse char blocks (elongated along the log)
+  let e2 = ns(cs * vec3f(0.30, 0.30, 0.55) + 0.37).g; // finer crazing
+  let crack = max(1.0 - smoothstep(0.0, 0.17, e1), (1.0 - smoothstep(0.0, 0.22, e2)) * 0.6);
+  var hh = mix(0.12, 0.78, smoothstep(0.0, 0.4, e1)) * 0.75 + fibre * 0.25;
+  // stone: faceted lumps
+  let sp = wp * 2.4 + seed;
+  let facets = ns(sp * 0.45).b;
+  let sh0 = ns(sp * 0.45).a * 0.6 + nz(sp * 1.1).g * 0.3 + ns(sp * 2.6).a * 0.1;
+  hh = select(hh, sh0 + facets * 0.35, isStone);
+  // end grain: growth rings + radial checks
   let rr = length(in.uv);
   let ringsN = nz(vec3f(in.uv * 0.3 + seed, 0.2)).r;
-  hh = select(hh, 0.5 + 0.12 * sin(rr * 55.0 + ringsN * 5.0), mat > 1.5);
+  let radial = ns(vec3f(in.uv * 0.7 + seed * 0.1, 0.3)).r;
+  hh = select(hh, 0.5 + 0.06 * sin(rr * 24.0 + ringsN * 6.0) + 0.14 * smoothstep(0.0, 0.3, radial), isEnd);
 
   let dpx = dpdx(wp); let dpy = dpdy(wp);
   let dhx = dpdx(hh); let dhy = dpdy(hh);
   let r1 = cross(dpy, n); let r2 = cross(n, dpx);
   let det = dot(dpx, r1);
   let grad = sign(det) * (dhx * r1 + dhy * r2);
-  let bump = select(0.006, 0.012, isStone);
+  let bump = select(0.016, 0.014, isStone);
   n = normalize(abs(det) * n - grad * bump);
 
-  // heat from the fire core
+  // ---- heat: closer to the flame and facing it = more charred and more glowing ----------------
   let core = length(wp.xz);
-  let heat = exp(-core * 2.0) * (0.3 + 0.7 * exp(-wp.y * 1.3));
-  let flick = nz(vec3f(wp.xz * 2.4 + seed * 0.1, t * 0.45)).b;
-  let crack = smoothstep(0.50, 0.30, hh);
-  let glow = saturate(crack * heat * (0.45 + 0.9 * flick) * 1.5);
+  let toL = scn.light.xyz - wp;
+  let Ld = normalize(toL);
+  let facing = saturate(dot(normalize(in.n), Ld) * 0.5 + 0.5);
+  let heat = exp(-core * 1.7) * (0.30 + 0.70 * exp(-wp.y * 1.0)) * (0.55 + 0.45 * facing);
+  let flick = nz(vec3f(wp.xz * 2.2 + seed * 0.1, t * 0.4 + wp.y)).b;
+  let cell = ns(cs * vec3f(0.3, 0.3, 0.38) * 0.7 + 0.2).b;
+  let hotCell = smoothstep(0.30, 0.85, cell);
+  let glow = saturate(crack * smoothstep(0.08, 0.55, heat) * (0.20 + 1.0 * flick) * (0.04 + 1.2 * hotCell * hotCell) * 1.7);
 
-  let charM = saturate(heat * 1.6 + 0.15 * flick);
-  var alb = mix(vec3f(0.060, 0.038, 0.024), vec3f(0.11, 0.075, 0.045), hh);
-  alb = mix(alb, vec3f(0.012, 0.011, 0.010), charM * 0.88);
-  alb += vec3f(0.06, 0.058, 0.055) * smoothstep(0.55, 0.8, hh) * charM * 0.5;
-  // stone
-  var stoneC = mix(vec3f(0.055, 0.052, 0.048), vec3f(0.12, 0.115, 0.105), sh0);
-  stoneC = mix(stoneC, vec3f(0.012), saturate(heat * 1.8) * 0.8);
+  let soot = ns(vec3f(cos(ang) * 0.4 + seed * 0.2, sin(ang) * 0.4, along * 0.35)).a;
+  let charM = saturate(heat * 3.0 + 0.25 * flick + 0.22 + 0.6 * smoothstep(0.30, 0.65, soot));
+  // raw bark: dry grey-brown with lighter fibre
+  var alb = mix(vec3f(0.016, 0.012, 0.009), vec3f(0.070, 0.052, 0.036), pow(fibre, 3.0) * 3.0) * mix(0.55, 1.1, hh);
+  // charcoal: near black blocks with dusty grey ash on the ridges
+  let ash = smoothstep(0.55, 0.9, hh) * (0.4 + 0.6 * flick);
+  var charC = mix(vec3f(0.008, 0.007, 0.006), vec3f(0.035, 0.034, 0.033), ash * charM);
+  charC = mix(charC, vec3f(0.003), crack * 0.9);
+  alb = mix(alb, charC, saturate(charM * 1.15));
+  // stone: grey granite with mica speckle and soot on the fire-facing side
+  let speck = smoothstep(0.80, 0.90, ns(wp * 35.0 + seed).a) * 0.08;
+  var stoneC = mix(vec3f(0.016, 0.016, 0.015), vec3f(0.058, 0.054, 0.049), sh0 * sh0 * 1.6);
+  stoneC *= 0.55 + 0.9 * ns(wp * 1.3 + seed).a;
+  stoneC = mix(stoneC, vec3f(0.060, 0.050, 0.040), smoothstep(0.5, 0.8, facets) * 0.5) + speck;
+  stoneC = mix(stoneC, vec3f(0.006, 0.0055, 0.005), saturate(heat * 2.6 + (1.0 - saturate(n.y * 1.2 + 0.3)) * 0.35) * 0.9);
   // end grain
-  let endC = mix(vec3f(0.17, 0.10, 0.05), vec3f(0.30, 0.19, 0.09), hh) * (1.0 - charM * 0.82);
+  let endC = mix(vec3f(0.17, 0.10, 0.05), vec3f(0.30, 0.19, 0.09), hh) * (1.0 - charM * 0.85);
   alb = select(alb, stoneC, isStone);
-  alb = select(alb, endC, mat > 1.5);
+  alb = select(alb, endC, isEnd);
 
-  var emis = flameRamp(0.18 + 0.5 * glow) * glow * select(1.8, 0.0, isStone);
-  emis += select(vec3f(0.0), flameRamp(0.2 + 0.4 * heat) * heat * saturate(rr) * 1.2 * (0.6 + flick), mat > 1.5);
+  // ember emission: bright orange-yellow in the cracks nearest the fire, dull red further out
+  var emis = flameRamp(0.14 + 0.62 * glow) * glow * select(2.0, 0.0, isStone);
+  let endCrack = saturate(smoothstep(0.35, 0.0, radial) * 0.8 + 0.25 * saturate(rr));
+  emis += select(vec3f(0.0), flameRamp(0.16 + 0.5 * heat) * heat * endCrack * 2.0 * (0.55 + flick), isEnd);
 
-  let ao = mix(0.28, 1.0, smoothstep(0.0, 0.45, wp.y)) * mix(0.55, 1.0, saturate(core * 1.5));
-  var lit = fireIrr(wp, n) * (0.55 + 0.45 * ao);
+  let ao = mix(0.30, 1.0, smoothstep(0.0, 0.45, wp.y)) * mix(0.5, 1.0, saturate(core * 1.4));
+  var lit = fireIrr(wp, n) * (0.5 + 0.5 * ao);
   lit += scn.amb.rgb * ao * (0.6 + 0.4 * n.y);
   lit += scn.moonCol.rgb * saturate(dot(n, scn.moon.xyz)) * ao;
   var col = alb * lit + emis;
+  // sheen on charcoal scales / wet stone catching the fire
+  let V = normalize(cam.pos.xyz - wp);
+  let Hh = normalize(Ld + V);
+  let rough = select(30.0, 14.0, isStone);
+  let spec = pow(saturate(dot(n, Hh)), rough) * select(charM * (1.0 - crack), 0.5, isStone);
+  col += scn.lightCol.rgb * scn.light.w / (dot(toL, toL) + 0.8) * spec * 0.09 * ao;
   col = applyFog(col, wp);
   return vec4f(col, 1.0);
 }
@@ -1381,7 +1452,7 @@ fn barkH(uv: vec2f, seed: f32) -> f32 {
 );
 
 // js/scenes/fire/wgsl_fx.js
-var NOISE_GEN = (
+var NOISE_LIB = (
   /* wgsl */
   `
 @group(0) @binding(0) var outT: texture_storage_3d<rgba8unorm, write>;
@@ -1435,6 +1506,26 @@ fn worley(p: vec3f, per: i32, seed: u32) -> f32 {
   } } }
   return sqrt(m);
 }
+fn worley2(p: vec3f, per: i32, seed: u32) -> vec2f {
+  let q = p * f32(per);
+  let i = vec3i(floor(q));
+  let f = fract(q);
+  var m1 = 8.0; var m2 = 8.0;
+  for (var z = -1; z <= 1; z++) { for (var y = -1; y <= 1; y++) { for (var x = -1; x <= 1; x++) {
+    let o = vec3i(x, y, z);
+    let h = vec3f(pcg3(wrap3(i + o, per) + vec3u(seed, seed * 3u, seed * 7u))) / 4294967295.0;
+    let d = vec3f(o) + h - f;
+    let e = dot(d, d);
+    if (e < m1) { m2 = m1; m1 = e; } else if (e < m2) { m2 = e; }
+  } } }
+  return vec2f(sqrt(m1), sqrt(m2));
+}
+`
+);
+var NOISE_GEN = (
+  /* wgsl */
+  `
+${NOISE_LIB}
 @compute @workgroup_size(4, 4, 4) fn main(@builtin(global_invocation_id) gid: vec3u) {
   let p = (vec3f(gid) + 0.5) / 128.0;
   let r = pfbm(p, 1u);
@@ -1442,6 +1533,23 @@ fn worley(p: vec3f, per: i32, seed: u32) -> f32 {
   let b = pfbm(p, 202u);
   let a = 1.0 - clamp(worley(p, 6, 303u) * 1.15, 0.0, 1.0);
   textureStore(outT, gid, vec4f(r, g, b, a));
+}
+`
+);
+var NOISE_GEN2 = (
+  /* wgsl */
+  `
+${NOISE_LIB}
+@compute @workgroup_size(4, 4, 4) fn main(@builtin(global_invocation_id) gid: vec3u) {
+  let p = (vec3f(gid) + 0.5) / 128.0;
+  let w1 = worley2(p, 5, 411u);
+  let w2 = worley2(p, 12, 523u);
+  let w3 = worley2(p, 8, 617u);
+  let e1 = clamp((w1.y - w1.x) * 2.6, 0.0, 1.0);
+  let e2 = clamp((w2.y - w2.x) * 2.6, 0.0, 1.0);
+  let f1 = clamp(w3.x * 1.2, 0.0, 1.0);
+  let fb = pfbm(p * 2.0, 707u);
+  textureStore(outT, gid, vec4f(e1, e2, f1, fb));
 }
 `
 );
@@ -1470,27 +1578,34 @@ struct FO { @builtin(position) pos: vec4f };
 // (density, temperature) of the flame volume at world position pw (fire base at the origin)
 fn flameField(pw: vec3f, t: f32, S: f32) -> vec2f {
   let p = pw / S;
-  let FH = 1.95 * scn.fire.z;
+  let H = 1.75 * scn.fire.z;
   let turb = scn.env.w;
-  let fs0 = saturate(p.y / FH);
-  var xz = p.xz - scn.fire.xy * fs0 * fs0 * 1.3;
-  let adv = t * 0.9;
-  let w1 = nz(vec3f(xz.x * 0.75, p.y * 0.5 - adv * 0.8, xz.y * 0.75)).rgb - 0.5;
-  xz += w1.xz * turb * (0.1 + fs0);
-  let w2 = nz(vec3f(xz.x * 1.9 + 0.4, p.y * 1.3 - adv * 1.9, xz.y * 1.9)).rgb - 0.5;
-  xz += w2.xz * 0.35 * turb * fs0;
-  let n2 = nz(vec3f(xz.x * 2.6 + 0.31, p.y * 0.95 - adv * 1.6, xz.y * 2.6 + 0.57)).rgb;
-  let n3 = nz(vec3f(xz.x * 4.4 + 0.7, p.y * 1.5 - adv * 2.6, xz.y * 4.4 + 0.2));
-  let lick = nz(vec3f(xz.x * 0.8 + 0.13, t * 0.25, xz.y * 0.8)).g;
-  let Hloc = FH * (0.4 + 1.2 * lick);
-  let f = p.y / Hloc;
-  if (f > 1.0 || p.y < -0.05) { return vec2f(0.0); }
-  let prof = mix(0.4, 1.0, smoothstep(0.0, 0.25, f)) * pow(1.0 - f, 0.75);
-  let r = 0.82 * prof;
+  let fs0 = saturate(p.y / (H * 1.5));
+  var xz = p.xz - scn.fire.xy * fs0 * fs0 * 1.1;
+  // big slow swirl + lateral lean of the whole body
+  let w1 = nz(vec3f(xz.x * 0.5, p.y * 0.3 - t * 0.5, xz.y * 0.5)).rgb - 0.5;
+  xz += w1.xz * turb * (0.10 + 0.8 * fs0);
+  let yy = p.y + w1.y * 0.45 * turb * fs0;
+  // anisotropic noise: wide in y, tight in xz -> vertical streaks that read as separate tongues
+  let tg = nz(vec3f(xz.x * 1.5 + 0.4, yy * 0.40 - t * 1.05, xz.y * 1.5));
+  let tg2 = nz(vec3f(xz.x * 3.4 + 0.1, yy * 0.85 - t * 2.0, xz.y * 3.4 + 0.5));
+  let tg3 = nz(vec3f(xz.x * 7.0 + 0.7, yy * 1.6 - t * 3.4, xz.y * 7.0 + 0.2));
+  // every tongue has its own height
+  let lick = nz(vec3f(xz.x * 2.3 + 0.13, t * 0.7 + yy * 0.12, xz.y * 2.3)).g;
+  let lick2 = nz(vec3f(xz.x * 4.6 + 0.6, t * 1.3, xz.y * 4.6 + 0.2)).b;
+  let Hloc = H * (0.22 + 1.15 * lick * lick + 0.55 * lick2);
+  let f = yy / Hloc;
+  if (f > 1.0 || p.y < 0.02) { return vec2f(0.0); }
+  // footprint: wide over the fuel, narrowing quickly into tongues
+  let prof = (0.30 + 0.70 * smoothstep(0.0, 0.18, f)) * pow(1.0 - f, 0.55) * (1.0 - 0.45 * f);
+  let r = 0.88 * prof;
   let d = length(xz) / max(r, 0.02);
-  var dens = (1.0 - d) * 1.6 - (n2.r - 0.48) * (0.7 + 1.9 * f) - (n3.g - 0.5) * (0.5 + 1.0 * f);
-  dens = saturate(dens * 0.95);
-  let T = saturate(dens * 1.05) * max(0.9 - 0.8 * pow(f, 1.15), 0.0) * max(1.0 - 0.45 * d * d, 0.0) * (0.55 + 0.75 * n3.b);
+  var dens = (1.0 - d) * 1.5 - (tg.r - 0.5) * (0.75 + 2.3 * f) - (tg2.g - 0.5) * (0.35 + 1.5 * f) - (tg3.b - 0.5) * (0.2 + 0.9 * f);
+  let baseY = 0.05 + 0.25 * tg2.g + 0.10 * tg.b;
+  dens = smoothstep(0.0, 0.2, dens) * smoothstep(baseY, baseY + 0.22, p.y);
+  // cooler near the fuel surface (thin blue-ish sheet), hottest just above it, cooling with height
+  let heat = smoothstep(0.0, 0.14, f) * (1.0 - pow(f, 0.9));
+  let T = saturate(saturate(dens * 1.1) * heat * (0.45 + 1.7 * tg.g * tg.g + 0.6 * tg2.r) * max(1.0 - 0.4 * d * d, 0.0) * 1.05);
   return vec2f(dens, T);
 }
 
@@ -1519,7 +1634,7 @@ fn ign(p: vec2f) -> f32 { return fract(52.9829189 * fract(dot(p, vec2f(0.0671105
   t1 = min(t1, max(ta, tb));
   if (t1 <= t0) { discard; }
 
-  let N = 72;
+  let N = clamp(i32((t1 - t0) / (0.026 * S)), 24, 88);
   let dt = (t1 - t0) / f32(N);
   var t = t0 + dt * ign(in.pos.xy + cam.misc.y * 7.13);
   let time = cam.pos.w;
@@ -1530,12 +1645,13 @@ fn ign(p: vec2f) -> f32 { return fract(52.9829189 * fract(dot(p, vec2f(0.0671105
     let fd = flameField(p, time, S);
     if (fd.x > 0.004) {
       let T = fd.y;
-      var rad = flameRamp(T) * (0.22 + 7.5 * pow(T, 2.3));
-      let low = 1.0 - smoothstep(0.0, 0.2, p.y / S);
-      rad += vec3f(0.10, 0.26, 1.0) * low * 0.9;
-      let w = pow(fd.x, 1.8) * dt;
-      L += trans * rad * w * 3.2 * mix(0.3, 1.0, smoothstep(0.0, 0.8, p.y / S));
-      trans *= exp(-w * (0.25 + 0.5 * (1.0 - T)));
+      var rad = flameRamp(T) * (0.2 + 3.6 * pow(T, 1.7));
+      let low = 1.0 - smoothstep(0.0, 0.22, p.y / S);
+      rad += vec3f(0.08, 0.22, 1.0) * low * 0.55 * fd.x;
+      let w = fd.x * dt * 5.0 / S;
+      L += trans * rad * (1.0 - exp(-w));
+      trans *= exp(-w * (0.55 + 0.9 * (1.0 - T)));
+      if (trans < 0.01) { break; }
     }
     t += dt;
   }
@@ -1714,7 +1830,7 @@ struct PO { @builtin(position) pos: vec4f, @location(0) uv: vec2f, @location(1) 
     size *= (1.0 - 0.6 * k);
     stretch = 1.0 + speed * 0.9;
     T = 0.62 * (1.0 - k);
-    bright = 0.22 * smoothstep(0.0, 0.12, k) * (1.0 - k);
+    bright = 0.10 * smoothstep(0.0, 0.12, k) * (1.0 - k);
   } else {
     size *= (1.0 - 0.5 * k);
     bright = (0.7 + 0.5 * sin(age * 38.0 + pt.att.z * 60.0)) * smoothstep(0.0, 0.04, k) * (1.0 - smoothstep(0.7, 1.0, k)) * scn.amb.w;
@@ -1755,7 +1871,7 @@ struct SO { @builtin(position) pos: vec4f, @location(0) uv: vec2f, @location(1) 
   let k = age / life;
   let rgt = normalize(cam.right.xyz);
   let upv = normalize(cam.up.xyz);
-  let size = pt.att.y * (1.0 + 4.5 * pow(k, 0.7));
+  let size = pt.att.y * (1.0 + 2.8 * pow(k, 0.7));
   let corner = QUAD[vi];
   let wp = pt.pos.xyz;
   let rot = pt.att.z * 6.28 + age * 0.15;
@@ -1774,15 +1890,23 @@ struct SO { @builtin(position) pos: vec4f, @location(0) uv: vec2f, @location(1) 
   if (r > 1.0) { discard; }
   let n = nz(vec3f(in.uv * 0.55 + in.seed * 7.0, in.k * 0.6 + in.seed)).r;
   let n2 = nz(vec3f(in.uv * 1.7 + in.seed * 3.0, in.seed)).g;
-  var a = (1.0 - smoothstep(0.15, 1.0, r)) * smoothstep(0.25, 0.8, n * 0.7 + n2 * 0.5 + 0.1 - r * 0.35);
+  let edgeF = pow(1.0 - smoothstep(0.0, 1.0, r), 1.5);
+  var a = edgeF * smoothstep(0.25, 0.8, n * 0.7 + n2 * 0.5 + 0.1 - r * 0.35);
   let fadeIn = smoothstep(0.0, 0.12, in.k);
   let fadeOut = pow(1.0 - in.k, 1.6);
   a *= fadeIn * fadeOut * 0.16 * scn.hor.w;
   let toL = scn.light.xyz - in.wp;
   let r2 = dot(toL, toL);
-  let irr = scn.lightCol.rgb * scn.light.w / (r2 + 1.5) * 0.45;
-  let lit = irr + scn.amb.rgb * 3.5 + scn.moonCol.rgb * 1.2 + scn.hor.rgb * 0.18;
-  let col = vec3f(0.30, 0.29, 0.28) * lit;
+  // lit side faces the fire: volumetric shading in the particle plane
+  let rgt = normalize(cam.right.xyz);
+  let upv = normalize(cam.up.xyz);
+  let l2 = vec2f(dot(toL, rgt), dot(toL, upv));
+  let ldir = l2 / max(length(l2), 1e-3);
+  let side = dot(in.uv / max(r, 1e-3), ldir) * smoothstep(0.0, 0.7, r);
+  let shade = 0.55 + 0.45 * side + 0.25 * (1.0 - r);
+  let irr = scn.lightCol.rgb * scn.light.w / (r2 + 3.0) * 0.32 * shade;
+  let lit = irr + scn.amb.rgb * 3.0 + scn.moonCol.rgb * 1.0 + scn.hor.rgb * 0.14;
+  let col = vec3f(0.26, 0.25, 0.25) * lit;
   return vec4f(col * a, a);
 }
 `
@@ -1861,14 +1985,17 @@ function fireState(P, t) {
     0.25 + 0.55 * S * heightF + (vn(t * 6.3 + 1) - 0.5) * 0.1,
     bend[1] * 0.25 * S + (vn(t * 4.7 + 8) - 0.5) * 0.16
   ];
-  const intensity = 10 * P.intensity * S * S * lightFlick * (0.7 + 0.3 * heightF);
+  const intensity = 18 * P.intensity * S * S * lightFlick * (0.7 + 0.3 * heightF);
   const k = P.tod;
   const night = sstep(0, 0.75, k);
   const zen = mix3([0.05, 0.095, 0.21], [25e-4, 5e-3, 0.015], Math.pow(sstep(0, 1, k), 0.8));
   const hor = mix3([0.62, 0.26, 0.13], [0.01, 0.016, 0.03], Math.pow(night, 0.7));
   const amb = mix3([0.024, 0.03, 0.05], [16e-4, 22e-4, 55e-4], Math.pow(night, 0.6));
   const moonVis = sstep(0.2, 0.7, k);
-  const moonCol = [0.5 * moonVis * 0.55, 0.62 * moonVis * 0.55, 0.9 * moonVis * 0.55];
+  const moonCol = [0.5 * moonVis * 0.33, 0.62 * moonVis * 0.33, 0.9 * moonVis * 0.33];
+  for (let i = 0; i < 3; i++) {
+    amb[i] *= 0.6;
+  }
   return { S, lightFlick, heightF, wind, gust, bend, light, intensity, zen, hor, amb, moonVis, moonCol, stars: sstep(0.05, 0.7, k) };
 }
 var scene = {
@@ -1883,11 +2010,11 @@ var scene = {
     smoke: 1,
     grass: 1,
     grassWind: 1,
-    tod: 0.5,
+    tod: 0.62,
     mist: 0.85,
     haze: 1,
     exposure: 1.3,
-    bloom: 0.14,
+    bloom: 0.2,
     vignette: 0.3,
     sat: 1.05,
     contrast: 1.1,
@@ -1909,7 +2036,7 @@ var scene = {
     ["exposure", "Exposure", 0.2, 6, 0.01],
     ["bloom", "Bloom", 0, 0.4, 2e-3]
   ],
-  camera: { mode: "walk", x: 2.6, y: 1.2, z: 3.1, yaw: -40, pitch: 4, fov: 56, speed: 1.6, eye: 1.25, near: 0.03 },
+  camera: { mode: "walk", x: 2.3, y: 1.2, z: 2.75, yaw: -40, pitch: 5, fov: 56, speed: 1.6, eye: 1.15, near: 0.03 },
   groundHeight,
   help: "click: mouse look \xB7 WASD walk \xB7 Shift run \xB7 wheel speed \xB7 H panel",
   constrainCamera(eng) {
@@ -1932,7 +2059,8 @@ var scene = {
       { binding: 0, visibility: VF, buffer: { type: "uniform" } },
       { binding: 1, visibility: VF, buffer: { type: "uniform" } },
       { binding: 2, visibility: VF, texture: { sampleType: "float", viewDimension: "3d" } },
-      { binding: 3, visibility: VF, sampler: { type: "filtering" } }
+      { binding: 3, visibility: VF, sampler: { type: "filtering" } },
+      { binding: 4, visibility: VF, texture: { sampleType: "float", viewDimension: "3d" } }
     ] });
     const bglP = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: STAGE.VERTEX, buffer: { type: "read-only-storage" } }] });
     const bglC = device.createBindGroupLayout({ entries: [
@@ -1948,21 +2076,23 @@ var scene = {
     const plRP = device.createPipelineLayout({ bindGroupLayouts: [bglR, bglP] });
     const plC = device.createPipelineLayout({ bindGroupLayouts: [bglC] });
     const plN = device.createPipelineLayout({ bindGroupLayouts: [bglN] });
-    const noiseTex = device.createTexture({ size: [NOISE_RES, NOISE_RES, NOISE_RES], dimension: "3d", format: "rgba8unorm", usage: TU.TEXTURE_BINDING | TU.STORAGE_BINDING });
-    const noiseMod = await eng.shader(NOISE_GEN, "noise gen");
-    const noisePipe = await device.createComputePipelineAsync({ layout: plN, compute: { module: noiseMod, entryPoint: "main" } });
-    {
+    const mkVolume = async (code, label) => {
+      const tex = device.createTexture({ size: [NOISE_RES, NOISE_RES, NOISE_RES], dimension: "3d", format: "rgba8unorm", usage: TU.TEXTURE_BINDING | TU.STORAGE_BINDING });
+      const mod = await eng.shader(code, label);
+      const pipe = await device.createComputePipelineAsync({ layout: plN, compute: { module: mod, entryPoint: "main" } });
       const enc = device.createCommandEncoder();
       const cp = enc.beginComputePass();
-      cp.setPipeline(noisePipe);
-      cp.setBindGroup(0, device.createBindGroup({ layout: bglN, entries: [{ binding: 0, resource: noiseTex.createView({ dimension: "3d" }) }] }));
+      cp.setPipeline(pipe);
+      cp.setBindGroup(0, device.createBindGroup({ layout: bglN, entries: [{ binding: 0, resource: tex.createView({ dimension: "3d" }) }] }));
       cp.dispatchWorkgroups(NOISE_RES / 4, NOISE_RES / 4, NOISE_RES / 4);
       cp.end();
       queue.submit([enc.finish()]);
-    }
-    const noiseView = noiseTex.createView({ dimension: "3d" });
+      return tex.createView({ dimension: "3d" });
+    };
+    const noiseView = await mkVolume(NOISE_GEN, "noise gen");
+    const noiseView2 = await mkVolume(NOISE_GEN2, "noise gen 2");
     const nsamp = device.createSampler({ magFilter: "linear", minFilter: "linear", addressModeU: "repeat", addressModeV: "repeat", addressModeW: "repeat" });
-    this.scnF = new Float32Array(34 * 4);
+    this.scnF = new Float32Array((10 + NBLK) * 4);
     this.scnBuf = eng.mkBuf(this.scnF.byteLength, GU.UNIFORM | GU.COPY_DST, "scene ubo");
     this.simF = new Float32Array(12);
     this.simBuf = eng.mkBuf(48, GU.UNIFORM | GU.COPY_DST, "sim ubo");
@@ -1972,7 +2102,8 @@ var scene = {
       { binding: 0, resource: { buffer: eng.camUBO } },
       { binding: 1, resource: { buffer: this.scnBuf } },
       { binding: 2, resource: noiseView },
-      { binding: 3, resource: nsamp }
+      { binding: 3, resource: nsamp },
+      { binding: 4, resource: noiseView2 }
     ] });
     this.solidVB = eng.bufFrom(solids.vertices, GU.VERTEX, "solid vb");
     this.solidIB = eng.bufFrom(solids.indices, GU.INDEX, "solid ib");

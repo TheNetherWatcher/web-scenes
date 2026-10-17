@@ -198,6 +198,46 @@ export function buildCity(log = () => {}) {
     beam(gb(s, a, y), gb(s, a, 319), 0.45, 1);
     light(gb(s, a, 319), 5, 3, 3, 3, 0);
   }
+  // Rockefeller Center (30 Rock), MetLife, Citigroup Center, Time Warner Center, United Nations
+  {
+    // 30 Rockefeller Plaza: limestone slab stepping back in four tiers
+    let s = -250, a = 7690; lm(s, a, 80, 60);
+    box(s, a, 0, 60, 52, 38, MAT.LIME, STY.PUNCH, { wash: 0.5 });
+    box(s, a, 60, 80, 40, 30, MAT.LIME, STY.PUNCH, { wash: 0.55 });
+    box(s, a, 140, 70, 32, 24, MAT.LIME, STY.PUNCH, { wash: 0.6 });
+    box(s, a, 210, 40, 25, 18, MAT.LIME, STY.PUNCH, { wash: 0.8 });
+    box(s, a, 250, 9, 16, 11, MAT.LIME, STY.NONE, { taper: 0.7, wash: 1.0 });
+    light(gb(s, a, 260), 4, 3, 0.4, 0.3, 0.8);
+    // MetLife (Helmsley) building straddling Park Avenue
+    s = 245; a = 7200; lm(s, a, 70, 60);
+    box(s, a, 0, 40, 62, 50, MAT.GRANITE, STY.PUNCH, { wash: 0.3 });
+    box(s, a, 40, 120, 52, 42, MAT.GRANITE, STY.PUNCH, { wash: 0.3 });
+    box(s, a, 160, 70, 40, 32, MAT.GRANITE, STY.PUNCH, { taper: 0.9, wash: 0.5 });
+    box(s, a, 230, 16, 24, 20, MAT.GRANITE, STY.NONE, { taper: 0.5, wash: 0.7 });
+    light(gb(s, a, 248), 4, 3, 0.4, 0.3, 0.8);
+    // Citigroup Center: aluminium shaft with the famous 45 degree crown
+    s = 640; a = 7925; lm(s, a, 55, 55);
+    box(s, a, 0, 24, 40, 40, MAT.STEEL, STY.NONE);
+    box(s, a, 24, 226, 24, 24, MAT.STEEL, STY.CURTAIN, { wash: 0.3 });
+    box(s, a, 250, 16, 24, 24, MAT.STEEL, STY.CURTAIN, { taper: 0.8, wash: 0.4 });
+    box(s, a, 266, 14, 18, 18, MAT.STEEL, STY.NONE, { taper: 0.35, wash: 0.5 });
+    light(gb(s, a, 281), 4, 3, 0.4, 0.3, 0.8);
+    // Time Warner Center twin towers at Columbus Circle
+    s = -420; a = 8215; lm(s, a, 50, 60);
+    box(s, a, 0, 70, 38, 62, MAT.GLASS_B, STY.CURTAIN);
+    for (const sg of [-1, 1]) {
+      box(s, a + sg * 22, 70, 160, 17, 20, MAT.GLASS_B, STY.CURTAIN, { wash: 0.1 });
+      light(gb(s, a + sg * 22, 232), 4, 3, 0.4, 0.3, 0.8);
+    }
+    // United Nations: green glass Secretariat slab and the low Assembly hall on the East River
+    s = 1470; a = 7340; lm(s, a, 190, 110);
+    box(s, a, 0, 154, 11.5, 44, MAT.GLASS_B, STY.CURTAIN, { wash: 0.25 });
+    box(s - 12, a, 120, 34, 0.5, 44, MAT.WHITE, STY.NONE, { noShadow: true });
+    box(s, a - 44.5, 0, 154, 11.5, 0.8, MAT.WHITE, STY.NONE);
+    box(s, a + 44.5, 0, 154, 11.5, 0.8, MAT.WHITE, STY.NONE);
+    box(s + 90, a - 40, 0, 22, 58, 46, MAT.WHITE, STY.RIBBON, { wash: 0.1 });
+    box(s + 90, a - 40, 22, 9, 36, 28, MAT.WHITE, STY.NONE, { taper: 0.6 });
+  }
   // One World Trade Center and neighbours
   {
     const s = -520, a = 1480; lm(s, a, 200, 200);
@@ -340,8 +380,8 @@ export function buildCity(log = () => {}) {
       out.tall = bump(s, a, -30, 800, 520, 560, 190)                            // Financial District
         + bump(s, a, -500, 1500, 420, 360, 150)                                 // WTC / Tribeca edge
         + bump(s, a, 100, 1850, 500, 260, 40)                                   // Civic Center
-        + bump(s, a, -150, 7200, 950, 800, 165)                                 // Midtown
-        + bump(s, a, -150, 6350, 700, 400, 100)                                 // Penn / Herald
+        + bump(s, a, -150, 7200, 950, 820, 205)                                 // Midtown
+        + bump(s, a, -150, 6350, 700, 400, 125)                                 // Penn / Herald
         + bump(s, a, -1500, 6600, 320, 380, 220)                                // Hudson Yards
         + bump(s, a, -120, 8300, 650, 260, 105)                                 // 57th St
         + bump(s, a, -100, 5000, 500, 300, 25);                                 // Union Sq
@@ -361,8 +401,8 @@ export function buildCity(log = () => {}) {
   function material(h, kind) {
     if (h < 22) return pick([[MAT.BRICK, 6], [MAT.LIME, 1.2], [MAT.SAND, 1.2], [MAT.WHITE, 1.0], [MAT.DARK, 0.5]]);
     if (h < 80) return pick([[MAT.BRICK, 5], [MAT.LIME, 2], [MAT.SAND, 1.0], [MAT.WHITE, 1.2], [MAT.GLASS_B, 1.6], [MAT.GLASS_D, 1.0]]);
-    if (h < 200) return pick([[MAT.GLASS_B, 4.5], [MAT.GLASS_D, 3], [MAT.LIME, 2], [MAT.BRICK, 1.4], [MAT.WHITE, 1.2], [MAT.STEEL, 0.7], [MAT.SAND, 0.6], [MAT.BLACKGLASS, 0.6]]);
-    return pick([[MAT.GLASS_B, 6], [MAT.GLASS_D, 3], [MAT.STEEL, 0.9], [MAT.WHITE, 1], [MAT.LIME, 1.2], [MAT.BLACKGLASS, 0.7]]);
+    if (h < 200) return pick([[MAT.GLASS_B, 4.5], [MAT.GLASS_D, 3.2], [MAT.LIME, 1.3], [MAT.BRICK, 0.7], [MAT.WHITE, 0.9], [MAT.STEEL, 0.9], [MAT.SAND, 0.3], [MAT.BLACKGLASS, 1.0]]);
+    return pick([[MAT.GLASS_B, 6], [MAT.GLASS_D, 3.5], [MAT.STEEL, 1.1], [MAT.WHITE, 0.8], [MAT.LIME, 0.9], [MAT.BLACKGLASS, 1.2]]);
   }
   const styleFor = (mat) => {
     if (mat === MAT.GLASS_B || mat === MAT.GLASS_D || mat === MAT.STEEL || mat === MAT.BLACKGLASS) return R() < 0.82 ? STY.CURTAIN : STY.RIBBON;
@@ -373,7 +413,12 @@ export function buildCity(log = () => {}) {
   function addBuilding(sc, ac, lw, ld, z) {
     // total height
     let h = z.base * (0.6 + 0.9 * R() ** 1.4);
-    if (z.tall > 8) h += z.tall * 1.05 * (R() ** 2.1) * (R() < 0.14 ? 1.55 : 1);
+    if (z.tall > 8) {
+      // dense districts: most lots carry a real tower, a few supertall spikes poke out
+      const dens = Math.min(1, z.tall / 120);
+      const frac = (1 - dens) * (R() ** 2.1) + dens * (0.28 + 0.78 * (R() ** 1.25));
+      h += z.tall * 1.05 * frac * (R() < 0.1 + 0.06 * dens ? 1.5 : 1);
+    }
     const dE = Math.hypot(sc + 60, ac - 6450), dC = Math.hypot(sc - 520, ac - 7040), dW = Math.hypot(sc + 520, ac - 1480);
     if (dE < 520 || dC < 420) h = Math.min(h, 150 + 30 * R());
     if (dW < 380) h = Math.min(h, 170 + 40 * R());
@@ -458,7 +503,7 @@ export function buildCity(log = () => {}) {
     // split the block along s into lots
     let sCur = bs0;
     while (sCur < bs1 - 8) {
-      let lw = tallZone && z.tall > 110 ? 32 + 48 * R() : outer ? 40 + 50 * R() : 16 + 30 * R();
+      let lw = tallZone && z.tall > 110 ? 24 + 36 * R() : outer ? 40 + 50 * R() : 16 + 30 * R();
       if (sCur + lw > bs1 - 12) lw = bs1 - sCur;
       const s0 = sCur, s1 = sCur + lw; sCur = s1;
       // one or two rows along a

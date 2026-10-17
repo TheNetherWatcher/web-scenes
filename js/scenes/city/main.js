@@ -15,8 +15,8 @@ const KF = [
   [-6, [0.015, 0.03, 0.10], [0.07, 0.07, 0.13], [0.35, 0.16, 0.12]],
   [-2, [0.04, 0.08, 0.24], [0.26, 0.18, 0.24], [1.2, 0.48, 0.24]],
   [0, [0.06, 0.12, 0.32], [0.42, 0.30, 0.32], [2.2, 0.85, 0.32]],
-  [3, [0.07, 0.16, 0.46], [0.55, 0.40, 0.42], [2.5, 1.25, 0.50]],
-  [8, [0.10, 0.23, 0.62], [0.50, 0.50, 0.58], [1.9, 1.4, 0.95]],
+  [3, [0.07, 0.16, 0.46], [0.55, 0.38, 0.38], [2.6, 1.15, 0.40]],
+  [8, [0.10, 0.23, 0.62], [0.50, 0.50, 0.58], [1.9, 1.3, 0.72]],
   [15, [0.14, 0.30, 0.74], [0.52, 0.66, 0.86], [1.2, 1.1, 1.0]],
   [30, [0.19, 0.38, 0.88], [0.60, 0.78, 1.0], [0.85, 0.92, 1.05]],
   [60, [0.20, 0.42, 0.95], [0.58, 0.78, 1.0], [0.70, 0.88, 1.1]],
@@ -33,7 +33,7 @@ function sunColor(eDeg, out, intensity) {
   const e = Math.max(eDeg, -1);
   const m = 1 / (Math.sin(e * D2R) + 0.15 * Math.pow(e + 3.885, -1.253));
   const a = Math.min(m, 40);
-  out[0] = Math.exp(-a * (0.033 + 0.02)); out[1] = Math.exp(-a * (0.075 + 0.02)); out[2] = Math.exp(-a * (0.17 + 0.02));
+  out[0] = Math.exp(-a * (0.03 + 0.02)); out[1] = Math.exp(-a * (0.064 + 0.02)); out[2] = Math.exp(-a * (0.135 + 0.02));
   const k = intensity * smoothstep(-1.5, 0.8, eDeg);
   out[0] *= k; out[1] *= k; out[2] *= k;
 }
@@ -52,14 +52,15 @@ const lookAt = (eng, s, a, y, ts, ta, ty, fov) => {
   if (fov) c.fovY = fov * D2R;
 };
 const PRESETS = {
-  1: { name: 'Lower Manhattan to Midtown, dusk', cam: [1.4, -2.8, 55, -0.25, 2.97, 150, 20], sun: [-1.3, 285], post: { exposure: 0.8, contrast: 1.24, sat: 1.15 } },
-  2: { name: 'Midtown, golden hour', cam: [-3.15, 5.0, 75, -0.32, 7.06, 175, 30], sun: [5.0, 280] },
+  1: { name: 'Midtown from the East River, sunset', cam: [2.25, 6.55, 32, -0.3, 7.0, 170, 52], sun: [6.2, 304], post: { haze: 1.5, exposure: 0.55, sat: 1.4, contrast: 1.22, rough: 0.13 } },
+  2: { name: 'Midtown, golden hour', cam: [-3.15, 5.0, 75, -0.32, 7.06, 175, 30], sun: [3.0, 280], post: { haze: 1.3, exposure: 0.8, sat: 1.05, contrast: 1.15 } },
   3: { name: 'Downtown from Jersey City', cam: [-2.1, -0.15, 70, -0.5, 1.5, 230, 36], sun: [4.0, 282] },
   4: { name: 'Brooklyn Bridge', cam: [1.12, 1.28, 17, 1.12, 1.9, 58, 62], sun: [6.0, 262] },
   5: { name: 'Midtown at night', cam: [-3.15, 5.0, 75, -0.32, 7.06, 175, 30], sun: [-14, 280] },
   6: { name: 'Sunset over the Hudson', cam: [-2.7, 5.55, 55, -5.1, 3.75, 66, 46], sun: [3.0, 262] },
   7: { name: 'High above, dusk', cam: [-3.4, 3.6, 850, 0.0, 6.0, 120, 48], sun: [-2.5, 280] },
   8: { name: 'Empire State close-up', cam: [-1.15, 5.75, 140, -0.06, 6.45, 290, 50], sun: [4.0, 280] },
+  9: { name: 'Lower Manhattan to Midtown, dusk', cam: [1.4, -2.8, 55, -0.25, 2.97, 150, 20], sun: [-1.3, 285], post: { exposure: 0.8, contrast: 1.24, sat: 1.15 } },
 };
 
 // ---- moving boats (paths in grid km, closed loops) ----------------------------------------------
@@ -97,14 +98,15 @@ const scene = {
   name: 'city',
   msaa: 4,
   params: {
-    sunElev: 5.0, sunAz: 280, haze: 0.8, glow: 1.0, clouds: 0.38, rough: 0.16, timeLapse: 0,
-    exposure: 1.05, bloom: 0.16, vignette: 0.14, sat: 1.28, contrast: 1.16, warmth: 0.0, grain: 0.0,
+    sunElev: 5.0, sunAz: 280, haze: 1.2, shafts: 1, glow: 1.0, clouds: 0.38, rough: 0.17, timeLapse: 0,
+    exposure: 1.05, bloom: 0.16, vignette: 0.14, sat: 1.06, contrast: 1.1, warmth: 0.0, grain: 0.0,
   },
   sliders: [
     ['sunElev', 'Time of day · sun elevation (deg)', -18, 60, 0.1],
     ['sunAz', 'Sun azimuth (deg)', 0, 360, 1],
     ['timeLapse', 'Auto time-lapse (deg/s)', 0, 3, 0.05],
     ['haze', 'Haze', 0.1, 4, 0.01],
+    ['shafts', 'Tower shadows in haze (light shafts)', 0, 1, 1],
     ['glow', 'Window glow', 0, 2, 0.01],
     ['clouds', 'Cloud cover', 0, 1, 0.01],
     ['rough', 'Water roughness', 0.02, 1, 0.01],
@@ -112,7 +114,7 @@ const scene = {
     ['bloom', 'Bloom', 0, 0.4, 0.002],
   ],
   camera: { mode: 'fly', x: 0, y: 70, z: 0, yaw: 0, pitch: 0, fov: 30, speed: 80, near: 1.0, minY: 3 },
-  help: 'click: mouse look · WASD move · Space/E up · Q/C down · Shift fast · wheel speed · 1-8 camera presets · T time-lapse · H panel',
+  help: 'click: mouse look · WASD move · Space/E up · Q/C down · Shift fast · wheel speed · 1-9 camera presets · T time-lapse · H panel',
 
   async init(eng) {
     const { device, queue, P } = eng;
@@ -175,7 +177,7 @@ const scene = {
     const mk = (pipes, k) => pipes.map((p, i) => eng.bg(p, [{ buffer: eng.camUBO }, { buffer: this.scnBuf[k] }, ...(i === 0 ? [this.hmapView] : [])], 'world' + k + i));
     this.bgMain = mk(main, 0);
     this.bgRefl = mk(refl, 1);
-    this.skyBG = eng.bg(this.skyPipe, [{ buffer: eng.camUBO }, { buffer: this.scnBuf[0] }]);
+    this.skyBG = eng.bg(this.skyPipe, [{ buffer: eng.camUBO }, { buffer: this.scnBuf[0] }, this.hmapView]);
     this.sampL = device.createSampler({ magFilter: 'linear', minFilter: 'linear', addressModeU: 'clamp-to-edge', addressModeV: 'clamp-to-edge' });
     this.sampR = device.createSampler({ magFilter: 'linear', minFilter: 'linear', addressModeU: 'clamp-to-edge', addressModeV: 'clamp-to-edge' });
     this.t = 0;
@@ -201,12 +203,12 @@ const scene = {
 
   onKey(eng, e) {
     if (e.code === 'KeyT') { eng.P.timeLapse = eng.P.timeLapse > 0 ? 0 : 0.6; return; }
-    const m = /^Digit([1-8])$/.exec(e.code);
+    const m = /^Digit([1-9])$/.exec(e.code);
     if (!m) return;
     const p = PRESETS[m[1]];
     lookAt(eng, ...p.cam);
     eng.P.sunElev = p.sun[0]; eng.P.sunAz = p.sun[1];
-    Object.assign(eng.P, { exposure: 1.05, contrast: 1.16, sat: 1.28 }, p.post || {});
+    Object.assign(eng.P, { exposure: 1.05, contrast: 1.1, sat: 1.06, haze: 1.2, rough: 0.17 }, p.post || {});
   },
 
   update(eng, dt, t) {
@@ -228,7 +230,7 @@ const scene = {
     const tmp = this.tmp3;
     // sun / moon
     f.set([sun[0], sun[1], sun[2], nt], 0);
-    sunColor(e, tmp, 6.0); f.set([tmp[0], tmp[1], tmp[2], 1], 4);
+    sunColor(e, tmp, 6.0); f.set([tmp[0], tmp[1], tmp[2], P.shafts], 4);
     const zen = [0, 0, 0], hor = [0, 0, 0], hs = [0, 0, 0];
     kf(e, 1, zen); kf(e, 2, hor); kf(e, 3, hs);
     const glowAmt = P.glow * (0.01 + 0.99 * smoothstep(6, -4, e));

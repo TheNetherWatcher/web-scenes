@@ -7,19 +7,19 @@ ${FIRE_COMMON}
 ${FULLSCREEN_VS}
 
 fn starField(rd: vec3f, t: f32) -> vec3f {
-  let lat = asin(clamp(rd.y, -1.0, 1.0));
-  let lon = atan2(rd.x, rd.z);
-  let q = vec2f(lon * max(cos(lat), 0.05), lat) / 0.0105;
-  let id = floor(q);
-  let h = hash12(id);
-  if (h > 0.12) { return vec3f(0.0); }
-  let c = hash22(id + 3.3) * 0.5 + 0.25;
-  let d = length(fract(q) - c);
-  let mag = pow(hash12(id + 9.1), 5.0);
-  let b = (0.12 + 3.2 * mag) * exp(-d * d / (2.0 * 0.11 * 0.11));
+  // isotropic: 3-D cells on a sphere shell, one possible star per cell
+  let p = rd * 118.0;
+  let id = floor(p);
+  let h = hash13(id);
+  if (h > 0.34) { return vec3f(0.0); }
+  let c = hash33(id + 3.3) * 0.5 + 0.25;
+  let q = fract(p) - c;
+  let d2 = dot(q, q);
+  let mag = pow(hash13(id + 9.1), 4.0);
+  let b = (0.10 + 3.4 * mag) * exp(-d2 / (2.0 * 0.095 * 0.095));
   let tw = 0.85 + 0.15 * sin(t * (2.0 + h * 30.0) + h * 80.0);
-  let tint = mix(vec3f(1.0, 0.78, 0.6), vec3f(0.7, 0.8, 1.0), hash12(id + 1.7));
-  return tint * b * tw * 0.55;
+  let tint = mix(vec3f(1.0, 0.78, 0.6), vec3f(0.7, 0.8, 1.0), hash13(id + 1.7));
+  return tint * b * tw * 0.6;
 }
 
 fn milkyWay(rd: vec3f) -> vec3f {
@@ -131,15 +131,30 @@ struct GO { @builtin(position) pos: vec4f, @location(0) wp: vec3f };
   alb = mix(alb, vec3f(0.05, 0.034, 0.02), smoothstep(0.55, 0.8, n1.b) * 0.5);
   alb *= 0.65 + 0.7 * n2.r * (0.6 + 0.8 * n3.g);
 
-  // ash bed + glowing coals
+  // bare, trodden soil around the pit: grit, pebbles and dry litter instead of meadow
   let r = length(wp.xz);
-  let ashM = 1.0 - smoothstep(0.62, 1.2, r + (n1.r - 0.5) * 0.55 + (n2.g - 0.5) * 0.2);
-  let ashC = mix(vec3f(0.030, 0.028, 0.026), vec3f(0.11, 0.105, 0.10), n2.b * n3.r);
+  let soilM = 1.0 - smoothstep(1.4, 4.8, r + (n1.g - 0.5) * 1.6);
+  let grit = ns(vec3f(wp.xz * 9.0, 0.2));
+  var soil = mix(vec3f(0.026, 0.021, 0.016), vec3f(0.070, 0.058, 0.045), n2.r * (0.5 + n3.g));
+  soil = mix(soil, vec3f(0.095, 0.082, 0.064), smoothstep(0.62, 0.8, grit.b) * 0.8);
+  soil = mix(soil, vec3f(0.060, 0.045, 0.022), smoothstep(0.55, 0.75, n1.b) * 0.6);
+  alb = mix(alb, soil, soilM);
+  // scorched ash bed + glowing coals: charcoal fragments, grey ash, hot cracks
+  let ashM = 1.0 - smoothstep(0.55, 1.25, r + (n1.r - 0.5) * 0.6 + (n2.g - 0.5) * 0.25);
+  let scorch = 1.0 - smoothstep(1.0, 2.3, r + (n1.g - 0.5) * 1.0);
+  alb = mix(alb, alb * 0.2 + vec3f(0.003), scorch * 0.9);
+  let chunks = ns(vec3f(wp.xz * 3.0, 0.45)).b;
+  let ashC = mix(vec3f(0.010, 0.0095, 0.009), vec3f(0.060, 0.058, 0.055), smoothstep(0.2, 0.9, n2.b * n3.r + 0.25 * (1.0 - chunks)));
   alb = mix(alb, ashC, ashM);
-  let cell = nz(vec3f(wp.xz * 4.4, 0.35)).a;
-  let cb = smoothstep(0.52, 0.86, cell) * (1.0 - smoothstep(0.35, 0.95, r)) * smoothstep(0.05, 0.9, ashM);
-  let pulse = 0.55 + 0.45 * nz(vec3f(wp.xz * 2.2, t * 0.25)).b + 0.2 * sin(t * 7.0 + cell * 40.0);
-  let emis = flameRamp(0.30 + 0.28 * pulse) * cb * pulse * 1.6;
+  let wq = wp.xz + (nz(vec3f(wp.xz * 1.3, 0.2)).rg - 0.5) * 0.45;
+  let net = 1.0 - smoothstep(0.0, 0.17, ns(vec3f(wq * 2.2, 0.3)).r);
+  let net2 = 1.0 - smoothstep(0.0, 0.22, ns(vec3f(wq * 5.0 + 0.2, 0.7)).g);
+  let cell = ns(vec3f(wq * 1.1, 0.8)).b;
+  let cover = smoothstep(0.30, 0.65, nz(vec3f(wq * 1.9, 0.55)).a + 0.25 * (n2.r - 0.5));   // ash lying over the embers
+  let hotZone = (1.0 - smoothstep(0.30, 1.05, r)) * smoothstep(0.1, 0.8, ashM);
+  let pulse = 0.5 + 0.5 * nz(vec3f(wq * 2.2, t * 0.25)).b + 0.25 * sin(t * 6.0 + cell * 40.0);
+  let cb = saturate(max(net, net2 * 0.6) * (0.2 + 1.2 * cell) * hotZone * (1.0 - 0.8 * cover));
+  let emis = flameRamp(0.16 + 0.4 * pulse * cb) * cb * pulse * 1.5;
 
   let sh = fireShadow(wp + vec3f(0.0, 0.03, 0.0));
   var lit = fireIrr(wp, n) * mix(0.2, 1.0, sh);
@@ -168,8 +183,11 @@ struct GOut { @builtin(position) pos: vec4f, @location(0) col: vec3f };
   let dcam = length(root2 - cam.pos.xz);
   let clump = nz(vec3f(root2 * 0.09, 0.4));
   let fade = 1.0 - smoothstep(30.0, 52.0, dcam);
-  let h = (0.2 + 0.5 * pow(hash11(sd * 91.7), 1.6)) * (0.55 + 0.9 * clump.r) * fade;
-  let wdt = 0.019 * (0.7 + 0.6 * hash11(sd * 13.1));
+  let rpit = length(root2);
+  let trample = mix(0.4, 1.0, smoothstep(1.5, 4.2, rpit));   // worn, sparser grass around the ring
+  let keep = step(hash11(sd * 3.7 + 0.31), mix(0.10, 1.0, smoothstep(1.5, 4.5, rpit)));
+  let h = (0.2 + 0.55 * pow(hash11(sd * 91.7), 1.6)) * (0.55 + 0.9 * clump.r) * fade * trample;
+  let wdt = 0.017 * (0.7 + 0.6 * hash11(sd * 13.1)) * (0.5 + 0.5 * trample);
   let dir = vec2f(cos(yaw), sin(yaw));
   let perp = vec2f(-dir.y, dir.x);
   let lean = (0.1 + 0.4 * hash11(sd * 37.3)) * h;
@@ -195,9 +213,10 @@ struct GOut { @builtin(position) pos: vec4f, @location(0) col: vec3f };
   n = normalize(mix(n, vec3f(0.0, 1.0, 0.0), 0.4));
 
   let var1 = hash11(sd * 7.7);
-  let rootC = vec3f(0.018, 0.026, 0.010);
-  var tipC = mix(vec3f(0.075, 0.115, 0.030), vec3f(0.16, 0.125, 0.05), smoothstep(0.55, 0.95, var1));
-  tipC = mix(tipC, vec3f(0.05, 0.08, 0.025), clump.b * 0.5);
+  let rootC = vec3f(0.020, 0.022, 0.009);
+  var tipC = mix(vec3f(0.112, 0.090, 0.040), vec3f(0.185, 0.140, 0.062), smoothstep(0.35, 0.95, var1));
+  tipC = mix(tipC, vec3f(0.050, 0.068, 0.024), smoothstep(0.45, 0.8, clump.b) * 0.75);
+  tipC *= 0.65 + 0.7 * hash11(sd * 53.9);
   let alb = mix(rootC, tipC, pow(u, 0.75));
   let ao = mix(0.22, 1.0, pow(u, 0.7));
 
@@ -218,9 +237,23 @@ struct GOut { @builtin(position) pos: vec4f, @location(0) col: vec3f };
   var col = alb * lit;
   col = applyFog(col, wp);
 
+  // heat shimmer: blades seen through the hot plume wobble sideways / up
+  let vv = wp - cam.pos.xyz;
+  let dv = length(vv);
+  let rdv = vv / max(dv, 1e-3);
+  let oc = scn.light.xyz - cam.pos.xyz;
+  let tc = dot(oc, rdv);
+  var wpD = wp;
+  if (tc > 0.0 && tc < dv) {
+    let hl = length(oc - rdv * tc);
+    let yc = cam.pos.y + rdv.y * tc;
+    let hz = exp(-hl * hl * 2.2) / (1.0 + tc * 0.3) * smoothstep(0.1, 0.9, yc) * (1.0 - smoothstep(2.0, 4.0, yc));
+    let wob = nz(vec3f(wp.x * 2.5, wp.y * 2.0 - t * 1.4, wp.z * 2.5)).rgb - 0.5;
+    wpD += (normalize(cam.right.xyz) * wob.x + normalize(cam.up.xyz) * wob.y) * 0.12 * hz * scn.env.z;
+  }
   var o: GOut;
-  o.pos = cam.viewProj * vec4f(wp - cam.pos.xyz, 1.0);
-  if (fade <= 0.0) { o.pos = vec4f(2.0, 2.0, 2.0, 1.0); }
+  o.pos = cam.viewProj * vec4f(wpD - cam.pos.xyz, 1.0);
+  if (fade <= 0.0 || keep < 0.5) { o.pos = vec4f(2.0, 2.0, 2.0, 1.0); }
   o.col = col;
   return o;
 }
@@ -243,14 +276,6 @@ struct SO {
   return o;
 }
 
-fn barkH(uv: vec2f, seed: f32) -> f32 {
-  let q = vec3f(cos(uv.x) * 0.55 + seed * 0.13, sin(uv.x) * 0.55 + seed * 0.07, uv.y * 1.3);
-  let a = nz(q).r;
-  let b = nz(q * vec3f(3.1, 3.1, 1.4) + 0.37).g;
-  let c = nz(q * vec3f(8.0, 8.0, 3.0) + 0.71).b;
-  return a * 0.55 + b * 0.35 + c * 0.1;
-}
-
 @fragment fn fs(in: SO) -> @location(0) vec4f {
   let t = cam.pos.w;
   let wp = in.wp;
@@ -259,51 +284,84 @@ fn barkH(uv: vec2f, seed: f32) -> f32 {
   let seed = in.ms.y;
   let isBark = mat < 0.5;
   let isStone = mat > 0.5 && mat < 1.5;
+  let isEnd = mat > 1.5;
 
-  // surface height used for bump + cracks (derivatives kept in uniform control flow)
-  var hh = barkH(in.uv, seed);
-  let sp = wp * 3.2 + seed;
-  let sh0 = nz(sp * 0.7).r * 0.6 + nz(sp * 2.6).g * 0.4;
-  hh = select(hh, sh0, isStone);
+  // ---- procedural surface: charred bark blocks with glowing cracks / stone facets / end grain ----
+  let ang = in.uv.x;
+  let along = in.uv.y;
+  let cs = vec3f(cos(ang) * 0.8 + seed * 0.31, sin(ang) * 0.8 + seed * 0.17, along * 1.5 + seed * 0.7);
+  let fibre = nz(vec3f(cos(ang) * 0.5 + seed * 0.13, sin(ang) * 0.5 + seed * 0.07, along * 0.45)).r * 0.6
+            + nz(vec3f(cos(ang) * 1.9 + seed, sin(ang) * 1.9, along * 0.9)).g * 0.4;
+  let e1 = ns(cs * vec3f(0.30, 0.30, 0.38)).r;       // coarse char blocks (elongated along the log)
+  let e2 = ns(cs * vec3f(0.30, 0.30, 0.55) + 0.37).g; // finer crazing
+  let crack = max(1.0 - smoothstep(0.0, 0.17, e1), (1.0 - smoothstep(0.0, 0.22, e2)) * 0.6);
+  var hh = mix(0.12, 0.78, smoothstep(0.0, 0.4, e1)) * 0.75 + fibre * 0.25;
+  // stone: faceted lumps
+  let sp = wp * 2.4 + seed;
+  let facets = ns(sp * 0.45).b;
+  let sh0 = ns(sp * 0.45).a * 0.6 + nz(sp * 1.1).g * 0.3 + ns(sp * 2.6).a * 0.1;
+  hh = select(hh, sh0 + facets * 0.35, isStone);
+  // end grain: growth rings + radial checks
   let rr = length(in.uv);
   let ringsN = nz(vec3f(in.uv * 0.3 + seed, 0.2)).r;
-  hh = select(hh, 0.5 + 0.12 * sin(rr * 55.0 + ringsN * 5.0), mat > 1.5);
+  let radial = ns(vec3f(in.uv * 0.7 + seed * 0.1, 0.3)).r;
+  hh = select(hh, 0.5 + 0.06 * sin(rr * 24.0 + ringsN * 6.0) + 0.14 * smoothstep(0.0, 0.3, radial), isEnd);
 
   let dpx = dpdx(wp); let dpy = dpdy(wp);
   let dhx = dpdx(hh); let dhy = dpdy(hh);
   let r1 = cross(dpy, n); let r2 = cross(n, dpx);
   let det = dot(dpx, r1);
   let grad = sign(det) * (dhx * r1 + dhy * r2);
-  let bump = select(0.006, 0.012, isStone);
+  let bump = select(0.016, 0.014, isStone);
   n = normalize(abs(det) * n - grad * bump);
 
-  // heat from the fire core
+  // ---- heat: closer to the flame and facing it = more charred and more glowing ----------------
   let core = length(wp.xz);
-  let heat = exp(-core * 2.0) * (0.3 + 0.7 * exp(-wp.y * 1.3));
-  let flick = nz(vec3f(wp.xz * 2.4 + seed * 0.1, t * 0.45)).b;
-  let crack = smoothstep(0.50, 0.30, hh);
-  let glow = saturate(crack * heat * (0.45 + 0.9 * flick) * 1.5);
+  let toL = scn.light.xyz - wp;
+  let Ld = normalize(toL);
+  let facing = saturate(dot(normalize(in.n), Ld) * 0.5 + 0.5);
+  let heat = exp(-core * 1.7) * (0.30 + 0.70 * exp(-wp.y * 1.0)) * (0.55 + 0.45 * facing);
+  let flick = nz(vec3f(wp.xz * 2.2 + seed * 0.1, t * 0.4 + wp.y)).b;
+  let cell = ns(cs * vec3f(0.3, 0.3, 0.38) * 0.7 + 0.2).b;
+  let hotCell = smoothstep(0.30, 0.85, cell);
+  let glow = saturate(crack * smoothstep(0.08, 0.55, heat) * (0.20 + 1.0 * flick) * (0.04 + 1.2 * hotCell * hotCell) * 1.7);
 
-  let charM = saturate(heat * 1.6 + 0.15 * flick);
-  var alb = mix(vec3f(0.060, 0.038, 0.024), vec3f(0.11, 0.075, 0.045), hh);
-  alb = mix(alb, vec3f(0.012, 0.011, 0.010), charM * 0.88);
-  alb += vec3f(0.06, 0.058, 0.055) * smoothstep(0.55, 0.8, hh) * charM * 0.5;
-  // stone
-  var stoneC = mix(vec3f(0.055, 0.052, 0.048), vec3f(0.12, 0.115, 0.105), sh0);
-  stoneC = mix(stoneC, vec3f(0.012), saturate(heat * 1.8) * 0.8);
+  let soot = ns(vec3f(cos(ang) * 0.4 + seed * 0.2, sin(ang) * 0.4, along * 0.35)).a;
+  let charM = saturate(heat * 3.0 + 0.25 * flick + 0.22 + 0.6 * smoothstep(0.30, 0.65, soot));
+  // raw bark: dry grey-brown with lighter fibre
+  var alb = mix(vec3f(0.016, 0.012, 0.009), vec3f(0.070, 0.052, 0.036), pow(fibre, 3.0) * 3.0) * mix(0.55, 1.1, hh);
+  // charcoal: near black blocks with dusty grey ash on the ridges
+  let ash = smoothstep(0.55, 0.9, hh) * (0.4 + 0.6 * flick);
+  var charC = mix(vec3f(0.008, 0.007, 0.006), vec3f(0.035, 0.034, 0.033), ash * charM);
+  charC = mix(charC, vec3f(0.003), crack * 0.9);
+  alb = mix(alb, charC, saturate(charM * 1.15));
+  // stone: grey granite with mica speckle and soot on the fire-facing side
+  let speck = smoothstep(0.80, 0.90, ns(wp * 35.0 + seed).a) * 0.08;
+  var stoneC = mix(vec3f(0.016, 0.016, 0.015), vec3f(0.058, 0.054, 0.049), sh0 * sh0 * 1.6);
+  stoneC *= 0.55 + 0.9 * ns(wp * 1.3 + seed).a;
+  stoneC = mix(stoneC, vec3f(0.060, 0.050, 0.040), smoothstep(0.5, 0.8, facets) * 0.5) + speck;
+  stoneC = mix(stoneC, vec3f(0.006, 0.0055, 0.005), saturate(heat * 2.6 + (1.0 - saturate(n.y * 1.2 + 0.3)) * 0.35) * 0.9);
   // end grain
-  let endC = mix(vec3f(0.17, 0.10, 0.05), vec3f(0.30, 0.19, 0.09), hh) * (1.0 - charM * 0.82);
+  let endC = mix(vec3f(0.17, 0.10, 0.05), vec3f(0.30, 0.19, 0.09), hh) * (1.0 - charM * 0.85);
   alb = select(alb, stoneC, isStone);
-  alb = select(alb, endC, mat > 1.5);
+  alb = select(alb, endC, isEnd);
 
-  var emis = flameRamp(0.18 + 0.5 * glow) * glow * select(1.8, 0.0, isStone);
-  emis += select(vec3f(0.0), flameRamp(0.2 + 0.4 * heat) * heat * saturate(rr) * 1.2 * (0.6 + flick), mat > 1.5);
+  // ember emission: bright orange-yellow in the cracks nearest the fire, dull red further out
+  var emis = flameRamp(0.14 + 0.62 * glow) * glow * select(2.0, 0.0, isStone);
+  let endCrack = saturate(smoothstep(0.35, 0.0, radial) * 0.8 + 0.25 * saturate(rr));
+  emis += select(vec3f(0.0), flameRamp(0.16 + 0.5 * heat) * heat * endCrack * 2.0 * (0.55 + flick), isEnd);
 
-  let ao = mix(0.28, 1.0, smoothstep(0.0, 0.45, wp.y)) * mix(0.55, 1.0, saturate(core * 1.5));
-  var lit = fireIrr(wp, n) * (0.55 + 0.45 * ao);
+  let ao = mix(0.30, 1.0, smoothstep(0.0, 0.45, wp.y)) * mix(0.5, 1.0, saturate(core * 1.4));
+  var lit = fireIrr(wp, n) * (0.5 + 0.5 * ao);
   lit += scn.amb.rgb * ao * (0.6 + 0.4 * n.y);
   lit += scn.moonCol.rgb * saturate(dot(n, scn.moon.xyz)) * ao;
   var col = alb * lit + emis;
+  // sheen on charcoal scales / wet stone catching the fire
+  let V = normalize(cam.pos.xyz - wp);
+  let Hh = normalize(Ld + V);
+  let rough = select(30.0, 14.0, isStone);
+  let spec = pow(saturate(dot(n, Hh)), rough) * select(charM * (1.0 - crack), 0.5, isStone);
+  col += scn.lightCol.rgb * scn.light.w / (dot(toL, toL) + 0.8) * spec * 0.09 * ao;
   col = applyFog(col, wp);
   return vec4f(col, 1.0);
 }

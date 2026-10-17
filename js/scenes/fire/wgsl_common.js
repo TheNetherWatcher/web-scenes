@@ -15,14 +15,16 @@ struct Scn {
   amb: vec4f,        // rgb ambient, w ember amount
   fire: vec4f,       // xy flame bend, z flame height factor
   moonCol: vec4f,    // rgb moon light colour
-  blk: array<vec4f, 24>, // shadow-casting spheres (stones + log segments): xyz, r
+  blk: array<vec4f, 28>, // shadow-casting spheres (stones + log segments): xyz, r
 }
 @group(0) @binding(0) var<uniform> cam: Cam;
 @group(0) @binding(1) var<uniform> scn: Scn;
 @group(0) @binding(2) var noiseT: texture_3d<f32>;
 @group(0) @binding(3) var nsamp: sampler;
+@group(0) @binding(4) var noiseS: texture_3d<f32>;   // surface volume: r,g crack edges, b facets, a fine fbm
 
 fn nz(p: vec3f) -> vec4f { return textureSampleLevel(noiseT, nsamp, p, 0.0); }
+fn ns(p: vec3f) -> vec4f { return textureSampleLevel(noiseS, nsamp, p, 0.0); }
 
 fn groundH(x: f32, z: f32) -> f32 {
   let r = length(vec2f(x, z));
@@ -54,7 +56,7 @@ fn fireShadow(p: vec3f) -> f32 {
   let d = L - p;
   if (dot(d, d) > 64.0) { return 1.0; }
   var s = 1.0;
-  for (var i = 0; i < 24; i++) {
+  for (var i = 0; i < 28; i++) {
     let b = scn.blk[i];
     if (b.w > 0.0) { s *= sphShadow(p, L, b.xyz, b.w); }
   }

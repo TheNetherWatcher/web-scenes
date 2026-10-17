@@ -21,6 +21,12 @@ struct BmOut {
   let t = select(0.0, 1.0, qk >= 2u);
   let sg = select(-1.0, 1.0, qk == 1u || qk == 2u);
   var p0 = in.a.xyz; var p1 = in.b.xyz;
+  // hairline suspenders alias into dashes in the half-res mirror pass: leave them out there
+  if (scn.ambDown.w > 0.5 && in.a.w < 0.2) {
+    var z: BmOut;
+    z.pos = vec4f(2.0, 2.0, 2.0, 1.0); z.wp = vec3f(0.0); z.info = vec4f(0.0); z.t = 0.0;
+    return z;
+  }
   let real = mix(p0, p1, t);
   if (scn.ambDown.w > 0.5) { p0.y = -p0.y; p1.y = -p1.y; }
   let q0 = p0 - cam.pos.xyz; let q1 = p1 - cam.pos.xyz;
@@ -150,21 +156,74 @@ fn carDots(lat: f32, along: f32, key: f32, t: f32, pf: f32) -> vec3f {
   return mix(detail, vec3f(0.55, 0.38, 0.25) * 0.12, smoothstep(1.5, 5.0, pf));
 }
 
+// daytime traffic: yellow cabs and ordinary cars as small rounded boxes, only up close
+fn carBody(lat: f32, along: f32, key: f32, t: f32) -> vec4f {
+  let lane = floor((lat + 13.0) / 3.2);
+  let fwdDir = lat > 0.0;
+  let sp = 5.0 + 5.0 * hash11(key * 7.3 + lane);
+  let x = along * select(-1.0, 1.0, fwdDir) + t * sp + hash11(lane + key * 3.7) * 200.0;
+  let cell = floor(x / 13.0);
+  let fx = (x - cell * 13.0) - 6.5;
+  let on = step(0.45, hash11(cell * 1.31 + key * 17.0 + lane * 5.0));
+  let latC = (lat + 13.0) - (lane + 0.5) * 3.2;
+  let q = vec2f(abs(fx) - 1.5, abs(latC) - 0.55);
+  let d = length(max(q, vec2f(0.0))) + min(max(q.x, q.y), 0.0) - 0.45;
+  let h = hash11(cell * 2.7 + lane * 9.1 + key);
+  var c = vec3f(0.55, 0.55, 0.56);
+  if (h < 0.34) { c = vec3f(0.85, 0.58, 0.02); }
+  else if (h < 0.5) { c = vec3f(0.62, 0.62, 0.64); }
+  else if (h < 0.64) { c = vec3f(0.02, 0.02, 0.025); }
+  else if (h < 0.76) { c = vec3f(0.55, 0.55, 0.52); }
+  else if (h < 0.86) { c = vec3f(0.35, 0.04, 0.03); }
+  else if (h < 0.94) { c = vec3f(0.04, 0.07, 0.2); }
+  let roof = 1.0 - 0.45 * smoothstep(0.6, 1.5, abs(fx));
+  return vec4f(c * roof, on * (1.0 - smoothstep(-0.1, 0.1, d)));
+}
+
 fn landColor(P: vec3f, sa: vec2f, pf: f32) -> vec3f {
   let ps = sa.x - floor(sa.x / 275.0) * 275.0;
   let pa = sa.y - floor(sa.y / 80.0) * 80.0;
   let dAve = min(ps, 275.0 - ps);
   let dSt = min(pa, 80.0 - pa);
-  let ave = 1.0 - smoothstep(14.0 - pf * 0.6, 14.0 + pf * 0.6, dAve);
-  let st = 1.0 - smoothstep(9.0 - pf * 0.6, 9.0 + pf * 0.6, dSt);
+  let aa = pf * 0.6;
+  let ave = 1.0 - smoothstep(14.0 - aa, 14.0 + aa, dAve);
+  let st = 1.0 - smoothstep(9.0 - aa, 9.0 + aa, dSt);
   var street = max(ave, st);
   street = mix(street, 0.31, smoothstep(10.0, 45.0, pf));
-  let blk = vec3f(0.16, 0.155, 0.145) * (0.75 + 0.5 * vnoise2(sa * 0.07));
-  let asph = vec3f(0.048, 0.048, 0.052);
+  // roadway inside the right-of-way; the rest is sidewalk
+  let roadA = 1.0 - smoothstep(10.0 - aa, 10.0 + aa, dAve);
+  let roadS = 1.0 - smoothstep(6.0 - aa, 6.0 + aa, dSt);
+  let road = max(roadA * ave, roadS * st);
+  let near = 1.0 - smoothstep(0.8, 3.0, pf);
+  let blk = vec3f(0.14, 0.135, 0.125) * (0.75 + 0.5 * vnoise2(sa * 0.07));
+  var asph = vec3f(0.05, 0.05, 0.054) * (0.8 + 0.4 * vnoise2(sa * 0.9));
+  let walk = vec3f(0.2, 0.19, 0.175) * (0.85 + 0.3 * vnoise2(sa * 1.7));
+  var street_alb = mix(walk, asph, road);
+  // lane lines, double yellow centre, crosswalk zebras (only close up)
+  if (near > 0.0) {
+    let lat = ps - select(0.0, 275.0, ps > 137.5);            // across an avenue
+    let latS = pa - select(0.0, 80.0, pa > 40.0);             // across a street
+    let onA = roadA * ave * (1.0 - st);
+    let onS = roadS * st * (1.0 - ave);
+    let dashA = step(fract(sa.y / 9.0), 0.4);
+    let dashS = step(fract(sa.x / 9.0), 0.4);
+    var mk = 0.0;
+    var yel = 0.0;
+    mk += onA * dashA * (smoothstep(0.12, 0.06, abs(abs(lat) - 3.3)) + smoothstep(0.12, 0.06, abs(abs(lat) - 6.6)));
+    mk += onS * dashS * smoothstep(0.12, 0.06, abs(abs(latS) - 3.0)) * 0.0;
+    yel += onA * smoothstep(0.1, 0.05, abs(abs(lat) - 0.22)) + onS * smoothstep(0.1, 0.05, abs(abs(latS) - 0.2));
+    let zA = onA * smoothstep(9.0, 9.4, dSt) * (1.0 - smoothstep(12.0, 12.4, dSt)) * step(fract(lat * 0.8), 0.55);
+    let zS = onS * smoothstep(14.0, 14.4, dAve) * (1.0 - smoothstep(17.0, 17.4, dAve)) * step(fract(latS * 0.8), 0.55);
+    street_alb = mix(street_alb, vec3f(0.5), clamp(mk * 0.8 + (zA + zS) * 0.85, 0.0, 1.0) * near);
+    street_alb = mix(street_alb, vec3f(0.55, 0.38, 0.03), clamp(yel, 0.0, 1.0) * near);
+    // curbs
+    let curb = smoothstep(0.35, 0.0, abs(dAve - 10.0)) * ave + smoothstep(0.3, 0.0, abs(dSt - 6.0)) * st;
+    street_alb *= 1.0 - 0.35 * clamp(curb, 0.0, 1.0) * near;
+  }
   // Central Park
   let pk = smoothstep(0.0, 18.0, min(min(sa.x + 480.0, 330.0 - sa.x), min(sa.y - 8330.0, 12400.0 - sa.y)));
   let canopy = vec3f(0.032, 0.058, 0.022) * (0.45 + 1.1 * fbm2(sa * 0.025, 4)) * (0.8 + 0.4 * vnoise2(sa * 0.6));
-  var alb = mix(blk, asph, street);
+  var alb = mix(blk, street_alb, street);
   alb = mix(alb, canopy, pk);
   let L = scn.sunDir.xyz;
   let sh = select(0.0, sunShadow(P + vec3f(0.0, 0.6, 0.0), L), L.y > 0.0);
@@ -172,12 +231,31 @@ fn landColor(P: vec3f, sa: vec2f, pf: f32) -> vec3f {
   let canyon = 1.0 - 0.55 * clamp(hLoc / 120.0, 0.0, 1.0);
   let moonL = max(normalize(scn.moon.xyz).y, 0.0) * scn.moon.w;
   var col = alb * (scn.sunRad.rgb * max(L.y, 0.0) * sh + scn.ambUp.rgb * canyon + vec3f(0.42, 0.5, 0.75) * moonL * 0.3);
-  // night street lights + traffic
+  // daytime traffic
   let nt = night();
+  if (near > 0.0 && road > 0.4 && pk < 0.5) {
+    let key = floor(sa.x / 275.0) * 31.0 + floor(sa.y / 80.0);
+    let latA = ps - select(0.0, 275.0, ps > 137.5);
+    let latS = pa - select(0.0, 80.0, pa > 40.0);
+    var cb = vec4f(0.0);
+    if (ave > 0.5) { cb = carBody(latA, sa.y, floor(sa.x / 275.0 + 0.5), scn.ambSide.w); }
+    else { cb = carBody(latS, sa.x, floor(sa.y / 80.0 + 0.5) + 100.0, scn.ambSide.w); }
+    let lcar = scn.sunRad.rgb * max(L.y, 0.0) * sh * 0.8 + scn.ambUp.rgb * canyon + vec3f(0.42, 0.5, 0.75) * moonL * 0.3;
+    col = mix(col, cb.rgb * lcar, cb.a * near * road);
+  }
+  // sheen: asphalt is a dull dielectric mirror at grazing angles
+  {
+    let V = normalize(cam.pos.xyz - P);
+    let Fr = 0.03 + 0.97 * pow(1.0 - max(V.y, 0.0), 5.0);
+    let R = reflect(-V, vec3f(0.0, 1.0, 0.0));
+    let nvar = 0.6 + 0.8 * vnoise2(sa * 0.35);
+    col += skyLite(vec3f(R.x, abs(R.y) + 0.05, R.z)) * Fr * 0.9 * road * (1.0 - pk) * (0.5 + 0.5 * sh) * nvar * (1.0 - 0.7 * smoothstep(0.0, 8.0, pf));
+  }
+  // night street lights + traffic
   if (nt > 0.02) {
     let key = floor(sa.x / 275.0) * 31.0 + floor(sa.y / 80.0);
     let blkVar = 0.6 + 0.8 * hash11(key);
-    let sodium = vec3f(1.0, 0.52, 0.2) * street * (1.0 - pk) * 0.5 * blkVar;
+    let sodium = vec3f(1.0, 0.52, 0.2) * street * (1.0 - pk) * mix(0.2, 0.08, smoothstep(2.0, 12.0, pf)) * blkVar;
     var cars = vec3f(0.0);
     if (pf < 6.0) {
       let latA = ps - select(0.0, 275.0, ps > 137.5);
@@ -185,7 +263,7 @@ fn landColor(P: vec3f, sa: vec2f, pf: f32) -> vec3f {
       cars += carDots(latA, sa.y, floor(sa.x / 275.0 + 0.5), scn.ambSide.w, pf) * ave;
       cars += carDots(latS, sa.x, floor(sa.y / 80.0 + 0.5) + 100.0, scn.ambSide.w, pf) * st * (1.0 - ave);
     } else {
-      cars = vec3f(0.55, 0.38, 0.25) * 0.12 * street;
+      cars = vec3f(0.55, 0.38, 0.25) * 0.05 * street;
     }
     col += (sodium + cars) * nt * clamp(scn.hor.w, 0.0, 1.5);
   }
@@ -194,18 +272,20 @@ fn landColor(P: vec3f, sa: vec2f, pf: f32) -> vec3f {
 
 fn waveSlope(p: vec2f, t: f32, pf: f32, rough: f32) -> vec2f {
   var g = vec2f(0.0);
-  for (var i = 0; i < 6; i++) {
+  for (var i = 0; i < 8; i++) {
     let fi = f32(i);
-    let ang = 0.55 + fi * 1.07;
+    // wind-aligned set with angular spread; wavelengths are not octave-locked so nothing tiles
+    let ang = 0.62 + (hash11(fi * 7.31 + 1.0) - 0.5) * 1.9;
     let d = vec2f(cos(ang), sin(ang));
-    let lam = 3.2 * pow(2.0, fi);
+    let lam = 2.4 * pow(1.64, fi) * (0.88 + 0.24 * hash11(fi * 3.7));
     let k = 6.2832 / lam;
     let w = sqrt(9.81 * k);
-    let sl = rough * 0.06 * pow(lam / 10.0, -0.25);
-    let att = 1.0 - smoothstep(lam * 0.08, lam * 0.3, pf);
-    let wob = 5.0 * (vnoise2(p * 0.021 + fi * 7.1) - 0.5) + 2.5 * (vnoise2(p * 0.07 + fi * 3.3) - 0.5);
-    let gust = 0.55 + 0.9 * vnoise2(p * 0.004 + fi * 1.7 + t * 0.02);
-    g += d * sl * att * gust * cos(k * dot(d, p) - w * t + fi * 2.1 + wob);
+    let sl = rough * 0.07 * pow(lam / 12.0, 0.3);
+    let att = 1.0 - smoothstep(lam * 0.07, lam * 0.28, pf);
+    // warp the phase with wavelength-scaled noise so crests break up and merge
+    let warp = 10.0 * (vnoise2(p * (0.8 / lam) + fi * 7.1) - 0.5) + 4.5 * (vnoise2(p * (2.6 / lam) + fi * 3.3) - 0.5);
+    let gust = 0.4 + 1.2 * vnoise2(p * 0.003 + fi * 1.7 + t * 0.02);
+    g += d * sl * att * gust * cos(k * dot(d, p) - w * t + fi * 2.1 + warp);
   }
   // small wind ripples
   let att2 = 1.0 - smoothstep(0.12, 0.6, pf);
@@ -314,7 +394,7 @@ fn sampleRefl(uv: vec2f, blur: f32) -> vec4f {
     wcol = mix(wcol, foamC, foam * 0.7);
     col += wcol * (1.0 - landW);
   }
-  col = applyFog(col, P);
+  col = applyFogPx(col, P, in.pos.xy);
   return vec4f(col, 1.0);
 }
 `;
@@ -333,6 +413,14 @@ struct VO { @builtin(position) pos: vec4f, @location(0) uv: vec2f }
 }
 @fragment fn fs(in: VO) -> @location(0) vec4f {
   let rd = camRay(cam, in.pos.xy);
-  return vec4f(skyFull(rd, true), 1.0);
+  var col = skyFull(rd, true);
+  if (scn.sunRad.w > 0.5 && rd.y < 0.45 && scn.sunDir.y > 0.003) {
+    // haze in front of the skyline sits in tower shadow; remove the unshadowed in-scatter there
+    let dmax = min(16000.0, 1400.0 / max(rd.y, 0.02));
+    let m = marchSun(cam.pos.xyz, rd, dmax, in.pos.xy);
+    let ph = sunPhase(rd);
+    col = max(col - scn.sunRad.rgb * ph * (m.y - m.x), vec3f(0.0));
+  }
+  return vec4f(col, 1.0);
 }
 `;
