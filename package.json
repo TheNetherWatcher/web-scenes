@@ -1,0 +1,15 @@
+{
+  "name": "web-scenes",
+  "version": "1.0.0",
+  "description": "Four real-time WebGPU scenes written from scratch: supercar, New York skyline, black hole, campfire.",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs",
+    "build": "node build.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  }
+}

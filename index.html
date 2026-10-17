@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WebGPU Scenes</title>
+<style>
+  html, body { margin: 0; min-height: 100%; background: #07090c; color: #e8e2d6; font: 15px/1.5 system-ui, sans-serif; }
+  main { max-width: 980px; margin: 0 auto; padding: 56px 20px 40px; }
+  h1 { font-size: 28px; font-weight: 600; margin: 0 0 6px; letter-spacing: -.01em; }
+  p.sub { margin: 0 0 32px; opacity: .65; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; }
+  a.card { display: flex; flex-direction: column; justify-content: flex-end; min-height: 180px; padding: 16px; border-radius: 12px;
+           color: #fff; text-decoration: none; border: 1px solid #ffffff14; transition: transform .15s, border-color .15s; }
+  a.card:hover { transform: translateY(-3px); border-color: #ffffff44; }
+  a.card b { font-size: 18px; } a.card span { opacity: .75; font-size: 13px; }
+  .car   { background: linear-gradient(160deg, #1b1f27 20%, #d9602b 130%); }
+  .city  { background: linear-gradient(160deg, #1c2540 20%, #f0a24b 130%); }
+  .space { background: radial-gradient(circle at 70% 30%, #ffb35a 0, #3b1b0c 22%, #05060a 60%); }
+  .fire  { background: linear-gradient(160deg, #0c0f0a 30%, #e2531b 140%); }
+  footer { margin-top: 36px; opacity: .5; font-size: 12px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>WebGPU Scenes</h1>
+  <p class="sub">Four real-time scenes written from scratch on WebGPU. No engine, no libraries. Needs a recent Chrome.</p>
+  <div class="grid">
+    <a class="card car" href="car.html"><b>Supercar</b><span>Original hypercar, clearcoat paint, wet road at dusk</span></a>
+    <a class="card city" href="city.html"><b>New York</b><span>Manhattan skyline from golden hour to night</span></a>
+    <a class="card space" href="space.html"><b>Black hole</b><span>Relativistic lensing, spinning accretion disc</span></a>
+    <a class="card fire" href="fire.html"><b>Campfire</b><span>Burning logs in an open grassland</span></a>
+  </div>
+  <footer>Click a canvas for mouse look. H toggles the settings panel.</footer>
+</main>
+</body>
+</html>
